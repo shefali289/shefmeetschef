@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import RecipeGrid from "@/components/recipe/RecipeGrid";
 import FilterChips from "@/components/search/FilterChips";
 import SearchBar from "@/components/search/SearchBar";
@@ -28,6 +29,15 @@ export default async function RecipesPage({ searchParams }: Props) {
         <h1 className="mt-1 text-4xl font-extrabold text-cocoa">
           <span className="brush">Recipes</span>
         </h1>
+        <p className="mt-2 text-cocoa">
+          Found a recipe on someone else&rsquo;s reel?{" "}
+          <Link
+            href="/add-reel"
+            className="inline-flex min-h-11 items-center font-bold text-copper-ink underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-copper"
+          >
+            Add a reel
+          </Link>
+        </p>
       </div>
       <div className="mt-6 flex flex-col gap-6">
         <SearchBar key={filters.q} filters={filters} />

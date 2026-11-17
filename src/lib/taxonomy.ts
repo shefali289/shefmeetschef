@@ -24,3 +24,8 @@ export const ALLERGENS = [
   "gluten",
   "lupin",
 ] as const;
+
+/** Narrows a stored tag to an allow-listed diet tag. */
+export function isDietTag(tag: string): tag is (typeof DIET_TAGS)[number] {
+  return (DIET_TAGS as readonly string[]).includes(tag);
+}

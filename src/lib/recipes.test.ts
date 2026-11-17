@@ -195,3 +195,133 @@ describe("RecipeSchema image URLs", () => {
     }
   });
 });
+
+/*
+ * Fake that applies the recipes RLS rules, so the test does not depend on which filters the code
+ * chooses: anon sees live shef recipes; a signed-in viewer also sees their own outside recipes.
+ */
+type Row = Recipe & { owner_id: string | null };
+function rlsClient(rows: Row[], viewerId: string | null, opts: { admin?: boolean } = {}) {
+  const calls: { filters: [string, unknown][] } = { filters: [] };
+  const from = vi.fn((_table: string) => {
+    const filters: [string, unknown][] = [];
+    const visible = () =>
+      rows
+        .filter(
+          (r) =>
+            (r.status === "live" && r.source === "shef") ||
+            (r.source === "outside" && viewerId !== null && (opts.admin || r.owner_id === viewerId)),
+        )
+        .filter((r) => filters.every(([col, val]) => (r as unknown as Record<string, unknown>)[col] === val));
+    const b: Record<string, unknown> = {};
+    for (const m of ["select", "order", "limit", "range", "neq", "in", "is", "filter", "match", "not"]) {
+      b[m] = vi.fn(() => b);
+    }
+    b.eq = vi.fn((col: string, val: unknown) => {
+      filters.push([col, val]);
+      calls.filters.push([col, val]);
+      return b;
+    });
+    b.maybeSingle = vi.fn(async () => ({ data: visible()[0] ?? null, error: null }));
+    b.single = vi.fn(async () => {
+      const [r] = visible();
+      return r ? { data: r, error: null } : { data: null, error: { message: "no rows", code: "PGRST116" } };
+    });
+    b.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve({ data: visible(), error: null }).then(resolve, reject);
+    return b;
+  });
+  const auth = {
+    getUser: vi.fn(async () => ({ data: { user: viewerId ? { id: viewerId } : null }, error: null })),
+  };
+  return { client: { from, auth }, from, calls };
+}
+
+const OWNER = "b0000000-0000-4000-8000-000000000002";
+const OTHER = "c0000000-0000-4000-8000-000000000003";
+const shefRow: Row = { ...fakeRecipe({ id: "s1", slug: "masala-chai", title: "DB Chai" }), owner_id: null };
+const outsideRow: Row = {
+  ...fakeRecipe({
+    id: "o1",
+    slug: "reel-nani-dal-abc123",
+    title: "Nani's Dal",
+    source: "outside",
+    reel_url: "https://www.instagram.com/nani.cooks/reel/ABC123/",
+  }),
+  owner_id: OWNER,
+};
+
+describe("getRecipeForViewer", () => {
+  it("getRecipeForViewer returns live shef recipes for anyone", async () => {
+    // no Supabase env: sample recipes, no viewer needed
+    const samples = await import("./recipes");
+    await expect(samples.getRecipeForViewer("masala-chai", null)).resolves.toMatchObject({
+      slug: "masala-chai",
+      source: "shef",
+    });
+    await expect(samples.getRecipeForViewer("../etc/passwd", null)).resolves.toBeNull();
+
+    vi.resetModules();
+    withSupabaseEnv();
+    const anon = rlsClient([shefRow, outsideRow], null);
+    vi.doMock("@supabase/supabase-js", () => ({ createClient: vi.fn(() => anon.client) }));
+    const { getRecipeForViewer } = await import("./recipes");
+    await expect(getRecipeForViewer("masala-chai", null)).resolves.toMatchObject({ title: "DB Chai" });
+    const viewer = rlsClient([shefRow, outsideRow], OTHER);
+    await expect(
+      getRecipeForViewer("masala-chai", viewer.client as unknown as import("@supabase/supabase-js").SupabaseClient),
+    ).resolves.toMatchObject({ title: "DB Chai" });
+  });
+
+  it("returns an outside recipe through the viewer's session only", async () => {
+    withSupabaseEnv();
+    // even if the anon query somehow returned the outside row, it must not be used
+    const leakyAnon = rlsClient([shefRow, outsideRow], OWNER);
+    vi.doMock("@supabase/supabase-js", () => ({ createClient: vi.fn(() => leakyAnon.client) }));
+    const { getRecipeForViewer } = await import("./recipes");
+    type C = import("@supabase/supabase-js").SupabaseClient;
+
+    await expect(getRecipeForViewer(outsideRow.slug, null)).resolves.toBeNull();
+
+    const other = rlsClient([shefRow, outsideRow], OTHER);
+    await expect(getRecipeForViewer(outsideRow.slug, other.client as unknown as C, OTHER)).resolves.toBeNull();
+
+    const owner = rlsClient([shefRow, outsideRow], OWNER);
+    const got = await getRecipeForViewer(outsideRow.slug, owner.client as unknown as C, OWNER);
+    expect(got).toMatchObject({ slug: outsideRow.slug, title: "Nani's Dal", source: "outside" });
+    expect(owner.from).toHaveBeenCalledWith("recipes");
+    expect(owner.calls.filters).toContainEqual(["slug", outsideRow.slug]);
+  });
+
+  it("an outside recipe is returned only to its owner, even when RLS lets an admin read it", async () => {
+    withSupabaseEnv();
+    const anon = rlsClient([shefRow, outsideRow], null);
+    vi.doMock("@supabase/supabase-js", () => ({ createClient: vi.fn(() => anon.client) }));
+    const { getRecipeForViewer } = await import("./recipes");
+    type C = import("@supabase/supabase-js").SupabaseClient;
+
+    // an admin session can read every outside recipe through RLS, but is not the owner
+    const admin = rlsClient([shefRow, outsideRow], OTHER, { admin: true });
+    await expect(getRecipeForViewer(outsideRow.slug, admin.client as unknown as C, OTHER)).resolves.toBeNull();
+    // a session client with no viewer id is not enough either
+    await expect(getRecipeForViewer(outsideRow.slug, admin.client as unknown as C, null)).resolves.toBeNull();
+    // the owner still gets it, and shef recipes are unaffected for the admin
+    const ownerAdmin = rlsClient([shefRow, outsideRow], OWNER, { admin: true });
+    await expect(
+      getRecipeForViewer(outsideRow.slug, ownerAdmin.client as unknown as C, OWNER),
+    ).resolves.toMatchObject({ slug: outsideRow.slug, source: "outside" });
+    await expect(getRecipeForViewer("masala-chai", admin.client as unknown as C, OTHER)).resolves.toMatchObject({
+      slug: "masala-chai",
+    });
+  });
+
+  it("listRecipes never returns outside recipes", async () => {
+    withSupabaseEnv();
+    // a client that ignores filters and returns everything (e.g. an admin session)
+    const fake = fakeSupabase({ data: [shefRow, outsideRow], error: null });
+    vi.doMock("@supabase/supabase-js", () => ({ createClient: fake.createClient }));
+    const { listRecipes, getRecipeBySlug } = await import("./recipes");
+    expect((await listRecipes()).map((r) => r.slug)).toEqual(["masala-chai"]);
+    await expect(getRecipeBySlug(outsideRow.slug)).resolves.toBeNull();
+  });
+});

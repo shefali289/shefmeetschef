@@ -285,3 +285,66 @@ describe("B2: reel- slugs belong to outside recipes only", () => {
     expect(await outsideCount(u)).toBe(0);
   });
 });
+
+describe("free limits are capped in the database, whatever lim the caller passes", () => {
+  // Review finding: consume_usage is callable straight from the browser (supabase.rpc), so a user
+  // could pass a huge lim. The DB caps it at the free limits: 5 outside reels a NZ month, 10 asks a
+  // NZ day. A smaller lim from the caller still applies.
+  const consumeAs = (user: string, kind: string, lim: number) =>
+    asUser(db, user, async (tx) =>
+      (await tx.query<{ r: number }>(`select public.consume_usage($1::public.usage_kind, $2) as r`, [kind, lim])).rows[0].r,
+    );
+
+  it("consume_usage('outside_reel', 100000) still stops at 5 this month", async () => {
+    const u = await createUser(db);
+    const left: number[] = [];
+    for (let i = 0; i < 5; i++) left.push(await consumeAs(u, "outside_reel", 100000));
+    expect(left).toEqual([4, 3, 2, 1, 0]);
+    const err = await pgErrorOf(() => consumeAs(u, "outside_reel", 100000));
+    expect(err.code).toBe("SMU01");
+    expect(err.message).toMatch(/usage_limit_reached/);
+    expect(await asSuper(db, `select count from usage where user_id = $1 and kind = 'outside_reel'`, [u])).toEqual([{ count: 5 }]);
+    // usage_remaining agrees with the cap too
+    const rem = await asUser(db, u, async (tx) =>
+      (await tx.query<{ r: number }>(`select public.usage_remaining('outside_reel', 100000) as r`)).rows[0].r,
+    );
+    expect(rem).toBe(0);
+  });
+
+  it("consume_usage('ask', 1000) still stops at 10 today", async () => {
+    const u = await createUser(db);
+    const left: number[] = [];
+    for (let i = 0; i < 10; i++) left.push(await consumeAs(u, "ask", 1000));
+    expect(left).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    const err = await pgErrorOf(() => consumeAs(u, "ask", 1000));
+    expect(err.code).toBe("SMU01");
+    expect(await asSuper(db, `select count from usage where user_id = $1 and kind = 'ask'`, [u])).toEqual([{ count: 10 }]);
+  });
+
+  it("a smaller lim from the caller is still respected", async () => {
+    const u = await createUser(db);
+    expect(await consumeAs(u, "ask", 3)).toBe(2);
+    expect(await consumeAs(u, "ask", 3)).toBe(1);
+    expect(await consumeAs(u, "ask", 3)).toBe(0);
+    expect((await pgErrorOf(() => consumeAs(u, "ask", 3))).code).toBe("SMU01");
+    // raising lim again only goes up to the free cap
+    for (let i = 0; i < 7; i++) await consumeAs(u, "ask", 1000);
+    expect((await pgErrorOf(() => consumeAs(u, "ask", 1000))).code).toBe("SMU01");
+
+    const v = await createUser(db);
+    expect(await consumeAs(v, "outside_reel", 2)).toBe(1);
+    expect(await consumeAs(v, "outside_reel", 2)).toBe(0);
+    expect((await pgErrorOf(() => consumeAs(v, "outside_reel", 2))).code).toBe("SMU01");
+  });
+
+  it("a direct insert of a 6th outside recipe this month fails even after those calls", async () => {
+    const u = await createUser(db);
+    for (let i = 0; i < 5; i++) await consumeAs(u, "outside_reel", 100000);
+    await pgErrorOf(() => consumeAs(u, "outside_reel", 100000));
+    // the 5 paid-for reels go in, straight through the API
+    for (let i = 0; i < 5; i++) await asUser(db, u, (tx) => insertRow(tx, outsideRow(u)));
+    expect(await outsideCount(u)).toBe(5);
+    await expect(asUser(db, u, (tx) => insertRow(tx, outsideRow(u)))).rejects.toThrow();
+    expect(await outsideCount(u)).toBe(5);
+  });
+});

@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { sampleRecipes } from "@/lib/sample-recipes";
 import { supabaseConfig } from "./supabase/config";
 import { RecipeSchema, type Recipe } from "./types";
@@ -28,6 +28,12 @@ async function fetchRecipes(slug?: string): Promise<Recipe[]> {
   if (slug) query = query.eq("slug", slug);
   const { data, error } = await query;
   if (error) throw new Error(`Could not load recipes: ${error.message}`);
+  // Filter again in code: even a client that sees more (e.g. an admin session) never lists
+  // drafts or outside recipes.
+  return parseRows(data).filter((r) => isPublic(r) && (!slug || r.slug === slug));
+}
+
+function parseRows(data: unknown[] | null): Recipe[] {
   return (data ?? []).flatMap((row) => {
     const parsed = RecipeSchema.safeParse(row);
     return parsed.success ? [parsed.data] : [];
@@ -44,3 +50,33 @@ export const getRecipeBySlug = cache(async (slug: string): Promise<Recipe | null
   const [recipe] = await fetchRecipes(slug);
   return recipe ?? null;
 });
+
+/**
+ * Live Shef recipe for anyone, or the viewer's own outside recipe read through their session
+ * client. Outside recipes are returned only when `viewerId` is their owner, so an admin session
+ * (which RLS lets read every outside recipe) still only sees its own on the recipe page.
+ * Null when not visible. Never cached across users.
+ */
+export async function getRecipeForViewer(
+  slug: string,
+  viewer: SupabaseClient | null,
+  viewerId: string | null = null,
+): Promise<Recipe | null> {
+  if (!SLUG_RE.test(slug)) return null;
+  const shef = await getRecipeBySlug(slug);
+  if (shef) return shef;
+  if (!viewer || !viewerId) return null;
+
+  const { data, error } = await viewer
+    .from("recipes")
+    .select("*")
+    .eq("slug", slug)
+    .eq("source", "outside")
+    .eq("owner_id", viewerId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load recipe: ${error.message}`);
+  // Checked in code too: the row must really belong to this viewer.
+  if (!data || (data as { owner_id?: unknown }).owner_id !== viewerId) return null;
+  const [recipe] = parseRows([data]);
+  return recipe && recipe.source === "outside" && recipe.status === "live" ? recipe : null;
+}
