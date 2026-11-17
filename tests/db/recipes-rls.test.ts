@@ -19,7 +19,7 @@ beforeAll(async () => {
   await makeAdmin(db, admin);
   liveShef = await insertRecipe(db, { slug: "live-shef", status: "live", source: "shef" });
   draftShef = await insertRecipe(db, { slug: "draft-shef", status: "draft", source: "shef" });
-  liveOutside = await insertRecipe(db, { slug: "live-outside", status: "live", source: "outside", owner_id: user });
+  liveOutside = await insertRecipe(db, { slug: "reel-live-outside", status: "live", source: "outside", owner_id: user });
 });
 
 describe("recipes RLS", () => {
@@ -96,7 +96,10 @@ describe("recipes RLS", () => {
   });
 
   it("signed-in non-admin cannot see drafts", async () => {
-    const rows = await asUser(db, user, async (tx) => (await tx.query<{ slug: string }>(`select slug from recipes order by slug`)).rows);
+    // `user` owns liveOutside, which task 2 makes visible to its owner (see outside-recipes-rls.test.ts)
+    const rows = await asUser(db, user, async (tx) => (await tx.query<{ slug: string }>(`select slug from recipes where source = 'shef' order by slug`)).rows);
     expect(rows.map((r) => r.slug)).toEqual([liveShef.slug]);
+    const draft = await asUser(db, user, async (tx) => (await tx.query(`select id from recipes where status = 'draft'`)).rows);
+    expect(draft).toHaveLength(0);
   });
 });
