@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import AskShef from "@/components/ask/AskShef";
+import SaveButton from "@/components/cookbook/SaveButton";
 import AllergenBox from "@/components/recipe/AllergenBox";
 import DietTags from "@/components/recipe/DietTags";
 import MediaEmbeds from "@/components/recipe/MediaEmbeds";
@@ -93,6 +94,18 @@ export default async function RecipePage({ params }: Props) {
     askRemaining = await usageRemaining(viewer.supabase, "ask", FREE_LIMITS.ask).catch(() => FREE_LIMITS.ask);
   }
 
+  // Whether the heart starts pressed: the viewer's own save, read through their session (RLS).
+  let saved = false;
+  if (viewer.user && viewer.supabase) {
+    const { data } = await viewer.supabase
+      .from("saves")
+      .select("id")
+      .eq("recipe_id", recipe.id)
+      .eq("user_id", viewer.user.id)
+      .maybeSingle();
+    saved = Boolean(data);
+  }
+
   return (
     <main id="main" className="mx-auto max-w-3xl px-4 pb-16">
       {!outside && (
@@ -132,7 +145,9 @@ export default async function RecipePage({ params }: Props) {
               <DietTags tags={recipe.diet_tags} />
             </div>
           )}
-          {/* Slice C: the "Save to my cookbook" heart (SaveButton) goes here. */}
+          <div className="mt-5">
+            <SaveButton recipeId={recipe.id} slug={recipe.slug} saved={saved} signedIn={viewer.user !== null} />
+          </div>
         </div>
       </header>
 

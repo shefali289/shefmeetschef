@@ -18,6 +18,10 @@ export interface FakeDb {
   /** Errors returned for the next inserts into a table, in order. */
   insertErrors: Record<string, ({ message: string; code?: string } | null)[]>;
   sessionClients: number;
+  /** Rows of `saves` ({ id, user_id, recipe_id, folder_id? }); a session sees only its own. */
+  saves: Record<string, unknown>[];
+  /** Every table read, with the eq filters applied, in order. */
+  reads: { client: "anon" | "session"; table: string; filters: [string, unknown][] }[];
 }
 
 export function newFakeDb(): FakeDb {
@@ -29,6 +33,8 @@ export function newFakeDb(): FakeDb {
     rpcResult: {},
     insertErrors: {},
     sessionClients: 0,
+    saves: [],
+    reads: [],
   };
 }
 
@@ -39,8 +45,13 @@ export function makeFakeClient(db: FakeDb, kind: "anon" | "session") {
     let write: FakeDb["writes"][number] | null = null;
     let writeError: { message: string; code?: string } | null = null;
     const visible = () => {
-      if (table !== "recipes") return [];
       const v = viewerId();
+      if (table === "saves") {
+        return db.saves
+          .filter((r) => v !== null && r.user_id === v)
+          .filter((r) => filters.every(([c, val]) => r[c] === val));
+      }
+      if (table !== "recipes") return [];
       return db.rows
         .filter(
           (r) =>
@@ -56,6 +67,7 @@ export function makeFakeClient(db: FakeDb, kind: "anon" | "session") {
         const row = { id: `${table}-new-${db.writes.length}`, ...(payload as object) };
         return { data: single ? row : [row], error: null };
       }
+      db.reads.push({ client: kind, table, filters: [...filters] });
       const rows = visible();
       if (single) return { data: rows[0] ?? null, error: null };
       return { data: rows, error: null };

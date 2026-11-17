@@ -149,3 +149,79 @@ describe("outside recipe page", () => {
     expect(params.map((p) => p.slug)).not.toContain(OUTSIDE_SLUG);
   });
 });
+
+/* ---------- the heart (Slice C review B3) ---------- */
+const shefRow = {
+  ...outsideRow,
+  id: "s1",
+  slug: "dal-makhani",
+  title: "Dal Makhani",
+  reel_url: null,
+  source: "shef",
+  owner_id: null,
+  published_at: "2026-11-01T00:00:00Z",
+};
+
+function heart() {
+  return screen.queryByRole("button", { name: /save to my cookbook/i });
+}
+
+describe("recipe page heart", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    db.current = null as unknown as FakeDb;
+  });
+
+  it("heart is pressed when the viewer has saved the recipe", async () => {
+    withSupabase(OTHER);
+    db.current.rows = [shefRow, outsideRow];
+    // another user's save of the same recipe exists too; only the viewer's counts
+    db.current.saves = [
+      { id: "sv-other", user_id: OWNER.id, recipe_id: shefRow.id },
+      { id: "sv-mine", user_id: OTHER.id, recipe_id: shefRow.id },
+    ];
+    expect(await renderOrNotFound(shefRow.slug)).toBe("rendered");
+    expect(heart()).toHaveAttribute("aria-pressed", "true");
+    const saveReads = db.current.reads.filter((r) => r.table === "saves");
+    expect(saveReads.length).toBeGreaterThan(0);
+    for (const r of saveReads) {
+      expect(r.client).toBe("session");
+      expect(r.filters).toContainEqual(["recipe_id", shefRow.id]);
+      expect(r.filters).toContainEqual(["user_id", OTHER.id]);
+    }
+  });
+
+  it("heart is not pressed when the viewer has not saved it", async () => {
+    withSupabase(OTHER);
+    db.current.rows = [shefRow, outsideRow];
+    // only someone else's save, and the viewer's save of a different recipe
+    db.current.saves = [
+      { id: "sv-other", user_id: OWNER.id, recipe_id: shefRow.id },
+      { id: "sv-mine", user_id: OTHER.id, recipe_id: "some-other-recipe" },
+    ];
+    expect(await renderOrNotFound(shefRow.slug)).toBe("rendered");
+    expect(heart()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("signed out shows Sign in to save and queries no saves", async () => {
+    withSupabase(null);
+    db.current.rows = [shefRow, outsideRow];
+    db.current.saves = [{ id: "sv-other", user_id: OWNER.id, recipe_id: shefRow.id }];
+    expect(await renderOrNotFound(shefRow.slug)).toBe("rendered");
+    expect(heart()).toBeNull();
+    const link = screen.getByRole("link", { name: /sign in to save/i });
+    expect(link.getAttribute("href")).toBe(`/sign-in?next=${encodeURIComponent(`/recipes/${shefRow.slug}`)}`);
+    expect(db.current.reads.filter((r) => r.table === "saves")).toEqual([]);
+  });
+
+  it("not configured queries no saves", async () => {
+    // no Supabase env: sample recipes, no session client
+    db.current = newFakeDb();
+    db.current.user = OTHER;
+    db.current.saves = [{ id: "sv-mine", user_id: OTHER.id, recipe_id: "anything" }];
+    render(await RecipePage({ params: Promise.resolve({ slug: "masala-chai" }) }));
+    expect(heart()).toBeNull();
+    expect(db.current.reads.filter((r) => r.table === "saves")).toEqual([]);
+    expect(db.current.sessionClients).toBe(0);
+  });
+});

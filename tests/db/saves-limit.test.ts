@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
+import { FREE_LIMITS } from "../../src/lib/limits";
 import {
   applyMigrationsFrom, asAdmin, asSuper, asUser, createDb, createUser, expectBlockedWrite, insertRecipe, makeAdmin,
   pgErrorOf, type Tx,
@@ -145,6 +146,13 @@ describe("cookbook limits (saves)", () => {
     await saveMany(ownerFull, LIMIT);
     await asUser(db, ownerFull, (tx) => save(tx, theirReel.id));
     expect(await countSaves(ownerFull)).toBe(LIMIT + 1);
+  });
+
+  it("saves_limit(uid) matches FREE_LIMITS.saves in src/lib/limits.ts", async () => {
+    // review N7: the counter on /cookbook and the DB trigger must agree
+    const u = await createUser(db);
+    expect(await asSuper(db, `select public.saves_limit($1::uuid) as n`, [u])).toEqual([{ n: FREE_LIMITS.saves }]);
+    expect(LIMIT).toBe(FREE_LIMITS.saves);
   });
 
   it("the limit comes from saves_limit(uid)", async () => {

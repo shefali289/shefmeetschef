@@ -208,3 +208,16 @@ Files: `src/lib/cookbook/cookbook.ts`, `src/app/cookbook/{page,actions}.tsx|ts`,
 2. One folder per save. "My reels" recipes can also be filed into folders.
 3. Ask Shef remembers the last 3 questions and answers on the page for follow-ups (held in the
    browser only, sent with the next question, capped in length, never stored). Each question counts.
+
+## As built (drift from the plan above)
+- Slice A: two extra migrations. `..._000005_outside_hardening.sql`: a trigger stops direct API inserts
+  of outside recipes beyond this month's consumed reels, Instagram-only `reel_url`, size caps,
+  `reel-` slugs only for outside recipes, and a saves trigger that exempts only the user's own reels.
+  `..._000006_usage_caps.sql`: `consume_usage` caps `lim` at the free limit (10 asks, 5 reels).
+- Slice B: one persistent live region announces Shef's answers. Limit messages come from one helper
+  (`limitReachedText`). Outside recipes load only for their owner, even for admins.
+- Slice C: My reels is built from the user's own outside recipes, not from saves. Saves whose
+  recipe is no longer visible still count and can be removed. `CookbookAnnouncer` announces
+  success messages. Folder chips use `aria-current`. Folder names are 1 to 80 chars (DB check).
+- Known follow-up: deleting an outside reel lets a direct API insert reuse that month's slot (no
+  Gemini cost, small impact); captions with no recipe still call Gemini without a cap.

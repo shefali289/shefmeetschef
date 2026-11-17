@@ -25,3 +25,8 @@ export function limitReachedText(kind: "ask" | "outside_reel", limit: number = F
     ? `That's all your questions for today, come back tomorrow. ${questionsLeftText(0, limit)}.`
     : `You've used all your reels for this month. ${reelsLeftText(0, limit)}.`;
 }
+
+/** Friendly message when the cookbook is full (the saves_limit_reached trigger fired). */
+export function savesLimitReachedText(limit: number = FREE_LIMITS.saves): string {
+  return `You've used ${limit} of ${limit} saves. Remove a recipe from your cookbook to make room.`;
+}
