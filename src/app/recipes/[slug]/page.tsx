@@ -5,7 +5,9 @@ import DietTags from "@/components/recipe/DietTags";
 import MediaEmbeds from "@/components/recipe/MediaEmbeds";
 import RecipeActions from "@/components/recipe/RecipeActions";
 import ServingsScaler from "@/components/recipe/ServingsScaler";
+import RecipePlaceholder from "@/components/recipe/RecipePlaceholder";
 import StepList from "@/components/recipe/StepList";
+import Reveal from "@/components/motion/Reveal";
 import { recipeJsonLd, serializeJsonLd } from "@/lib/jsonld";
 import { getRecipeBySlug, listRecipes } from "@/lib/recipes";
 import { shareImage } from "@/lib/share-image";
@@ -49,9 +51,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 function minutes(label: string, value: number | null) {
   if (value === null) return null;
   return (
-    <div>
-      <dt className="text-sm">{label}</dt>
-      <dd className="font-bold">{value} min</dd>
+    <div className="rounded-2xl bg-white/80 px-4 py-2 shadow-soft ring-1 ring-cocoa/10">
+      <dt className="font-hand text-lg leading-none text-cocoa-soft">{label}</dt>
+      <dd className="font-extrabold text-cocoa">{value} min</dd>
     </div>
   );
 }
@@ -67,39 +69,60 @@ export default async function RecipePage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(recipeJsonLd(recipe, siteUrl())) }}
       />
 
-      <header className="-mx-4 mb-6 bg-gradient-to-br from-shef-orange to-spice px-4 py-10 text-white sm:mx-0 sm:mt-6 sm:rounded-2xl sm:px-8">
-        {recipe.cover_image_url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={recipe.cover_image_url}
-            alt=""
-            className="mb-6 aspect-[4/3] w-full rounded-xl object-cover"
-          />
-        )}
-        <h1 className="font-script text-4xl leading-tight sm:text-5xl">{recipe.title}</h1>
-        {recipe.description && <p className="mt-4 text-lg">{recipe.description}</p>}
-        {(recipe.prep_minutes !== null || recipe.cook_minutes !== null) && (
-          <dl className="mt-6 flex gap-6">
-            {minutes("Prep", recipe.prep_minutes)}
-            {minutes("Cook", recipe.cook_minutes)}
-          </dl>
-        )}
+      <header className="-mx-4 mb-8 overflow-hidden bg-gradient-to-br from-peach-light via-cream to-blush-light px-4 pt-4 pb-8 sm:mx-0 sm:mt-6 sm:rounded-[2rem] sm:px-8 sm:pt-8 sm:shadow-soft sm:ring-1 sm:ring-cocoa/10">
+        <div className="animate-scale-in overflow-hidden rounded-[1.75rem] shadow-soft ring-4 ring-white">
+          {recipe.cover_image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={recipe.cover_image_url} alt="" className="aspect-[4/3] w-full object-cover" />
+          ) : (
+            <RecipePlaceholder className="aspect-[16/9] w-full" />
+          )}
+        </div>
+        <div className="animate-fade-up mt-6" style={{ "--delay": "150ms" } as React.CSSProperties}>
+          <p className="font-hand text-2xl text-herb">from Shef&rsquo;s kitchen</p>
+          <h1 className="font-script text-5xl leading-tight break-words tracking-[0.015em] text-cocoa sm:text-6xl">
+            {recipe.title}
+          </h1>
+          {recipe.description && <p className="mt-3 text-lg text-cocoa">{recipe.description}</p>}
+          {(recipe.prep_minutes !== null || recipe.cook_minutes !== null) && (
+            <dl className="mt-5 flex flex-wrap gap-3">
+              {minutes("Prep", recipe.prep_minutes)}
+              {minutes("Cook", recipe.cook_minutes)}
+            </dl>
+          )}
+          {recipe.diet_tags.length > 0 && (
+            <div className="mt-5">
+              <DietTags tags={recipe.diet_tags} />
+            </div>
+          )}
+        </div>
       </header>
 
-      <div className="space-y-8">
-        <DietTags tags={recipe.diet_tags} />
-        <MediaEmbeds title={recipe.title} reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />
+      <div className="space-y-10">
+        {(recipe.reel_url || recipe.youtube_url) && (
+          <Reveal>
+            <MediaEmbeds title={recipe.title} reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />
+          </Reveal>
+        )}
 
-        <section aria-labelledby="ingredients-heading">
-          <h2 id="ingredients-heading" className="mb-4 text-2xl font-bold">
-            Ingredients
+        <Reveal as="section" aria-labelledby="ingredients-heading">
+          <h2 id="ingredients-heading" className="mb-4 text-3xl font-extrabold">
+            <span className="brush">Ingredients</span>
           </h2>
-          <ServingsScaler baseServings={recipe.base_servings} ingredients={recipe.ingredients} />
-        </section>
+          <div className="rounded-[1.75rem] bg-white p-5 shadow-soft ring-1 ring-cocoa/10">
+            <ServingsScaler baseServings={recipe.base_servings} ingredients={recipe.ingredients} />
+          </div>
+        </Reveal>
 
-        <AllergenBox allergens={recipe.allergens} />
-        <StepList steps={recipe.steps} />
-        <RecipeActions reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />
+        <Reveal>
+          <AllergenBox allergens={recipe.allergens} />
+        </Reveal>
+        <Reveal>
+          <StepList steps={recipe.steps} />
+        </Reveal>
+        <Reveal>
+          <RecipeActions reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />
+        </Reveal>
       </div>
     </main>
   );

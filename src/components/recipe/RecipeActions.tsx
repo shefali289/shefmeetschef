@@ -1,14 +1,14 @@
 import { instagramCanonicalUrl, youtubeCanonicalUrl } from "@/lib/embed";
+import { INSTAGRAM_URL } from "@/lib/social";
 
 export interface RecipeActionsProps {
   reelUrl: string | null;
   youtubeUrl: string | null;
 }
 
-const FOLLOW_URL = "https://www.instagram.com/shefmeetschef/";
 
 const base =
-  "inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-shef-navy";
+  "press inline-flex min-h-11 items-center justify-center rounded-full px-5 py-2 font-bold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cocoa";
 
 function ExternalLink(props: { href: string; className: string; children: React.ReactNode }) {
   return (
@@ -25,18 +25,18 @@ export default function RecipeActions({ reelUrl, youtubeUrl }: RecipeActionsProp
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
       {reel && (
-        <ExternalLink href={reel} className="bg-shef-orange text-white hover:bg-shef-orange-dark">
+        <ExternalLink href={reel} className="bg-copper text-white shadow-soft hover:bg-copper-dark">
           Watch the reel
         </ExternalLink>
       )}
       {youtube && (
-        <ExternalLink href={youtube} className="bg-shef-navy text-white hover:opacity-90">
+        <ExternalLink href={youtube} className="bg-cocoa text-white shadow-soft hover:bg-cocoa-soft">
           Watch on YouTube
         </ExternalLink>
       )}
       <ExternalLink
-        href={FOLLOW_URL}
-        className="border-2 border-shef-orange bg-white text-shef-navy hover:bg-shef-cream"
+        href={INSTAGRAM_URL}
+        className="border-2 border-copper bg-white text-cocoa hover:bg-blush-light"
       >
         Follow @shefmeetschef
       </ExternalLink>

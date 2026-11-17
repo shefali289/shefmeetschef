@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import RecipeCard from "./RecipeCard";
 import type { Recipe } from "@/lib/types";
 
@@ -81,5 +81,32 @@ describe("RecipeCard", () => {
     render(<RecipeCard recipe={recipe} />);
     expect(screen.getByText("Vegan")).toBeInTheDocument();
     expect(screen.getByText("Gluten free")).toBeInTheDocument();
+  });
+
+  it("without a cover shows a decorative illustrated placeholder, not a block letter", () => {
+    const noCover = { ...recipe, cover_image_url: null };
+    const { container } = render(<RecipeCard recipe={noCover} />);
+    const link = screen.getByRole("link");
+    const placeholder = within(link).getByTestId("recipe-placeholder");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    // The placeholder is the visual slot before the title, not some tiny icon inside it.
+    const heading = screen.getByRole("heading", { name: recipe.title });
+    expect(placeholder!.contains(heading)).toBe(false);
+    // An illustration (e.g. herb sprig / chef hat SVG), not text.
+    expect(placeholder!.querySelector("svg")).not.toBeNull();
+    // No element anywhere whose whole text is the title's first letter.
+    const letter = recipe.title.charAt(0);
+    const blockLetters = [...container.querySelectorAll("*")].filter(
+      (el) => (el.textContent ?? "").trim() === letter,
+    );
+    expect(blockLetters).toEqual([]);
+    expect((placeholder!.textContent ?? "").trim()).toBe("");
+  });
+
+  it("long titles wrap instead of overflowing the card", () => {
+    const long = { ...recipe, title: "Supercalifragilisticexpialidociousmasalachaiwithcardamom" };
+    render(<RecipeCard recipe={long} />);
+    const title = screen.getByRole("heading", { name: long.title });
+    expect(title.className).toMatch(/(^|\s)(break-words|\[overflow-wrap:anywhere\])(\s|$)/);
   });
 });

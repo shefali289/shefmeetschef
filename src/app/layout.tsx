@@ -1,22 +1,30 @@
 import type { Metadata } from "next";
-import { Inter, Pacifico } from "next/font/google";
+import { Caveat, Great_Vibes, Nunito } from "next/font/google";
 import { Suspense } from "react";
 import Header from "@/components/brand/Header";
+import SiteFooter from "@/components/brand/SiteFooter";
 import SkipLink from "@/components/brand/SkipLink";
 import HeaderAuth from "@/components/HeaderAuth";
 import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
   display: "swap",
 });
 
-// Script font for recipe titles only.
-const pacifico = Pacifico({
-  variable: "--font-pacifico",
+// Elegant calligraphy for the wordmark and recipe titles only.
+const greatVibes = Great_Vibes({
+  variable: "--font-great-vibes",
   weight: "400",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// Handwritten accent for small notes and taglines.
+const caveat = Caveat({
+  variable: "--font-caveat",
   subsets: ["latin"],
   display: "swap",
 });
@@ -34,14 +42,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-NZ">
-      <body className={`${inter.variable} ${pacifico.variable} font-sans antialiased`}>
+      <body className={`${nunito.variable} ${greatVibes.variable} ${caveat.variable} flex min-h-dvh flex-col font-sans antialiased`}>
         <SkipLink />
         <Header>
           <Suspense fallback={null}>
             <HeaderAuth />
           </Suspense>
         </Header>
-        {children}
+        <div className="flex-1">{children}</div>
+        <SiteFooter />
       </body>
     </html>
   );

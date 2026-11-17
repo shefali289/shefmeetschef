@@ -1,22 +1,228 @@
 @import "tailwindcss";
 
-/* ShefMeetsChef brand tokens. Keep all brand values in this one block. */
+/*
+ * ShefMeetsChef brand tokens. Keep all brand values in this one block.
+ * `inline` is required so the next/font CSS variables resolve where the utility is used.
+ * Contrast (WCAG AA needs 4.5:1 for text): cocoa is 9.8:1 or more on every background here;
+ * herb 5.7:1 on cream and 4.75:1 on peach; copper 4.9:1 on cream and 5.2:1 under white text,
+ * but only 4.1:1 on peach, so orange text on peach or blush tints uses copper-ink (4.8:1+).
+ * Blush and peach are decorative backgrounds only, never text colours.
+ */
 @theme inline {
-  /* Burnt orange, darkened from #C8541F so white text and orange text on cream pass WCAG AA. */
-  --color-shef-orange: #b84a1a;
-  --color-shef-orange-dark: #9a3d14;
-  --color-shef-cream: #fbf4e8;
-  --color-shef-navy: #1f2a44;
-  --color-herb: #4f7942;
+  --color-cocoa: #4a2c23;
+  --color-cocoa-soft: #6b4a3e;
+  --color-cream: #fff7ec;
+  --color-peach: #f9e0c2;
+  --color-peach-light: #fdeedd;
+  --color-blush: #f4b9ba;
+  --color-blush-light: #fde4e2;
+  /* Copper: primary actions (white text on it 5.2:1). */
+  --color-copper: #b84a1a;
+  --color-copper-dark: #9a3d14;
+  /* Orange text on peach/blush tints. */
+  --color-copper-ink: #a54317;
+  /* Herb green: white text on it 6:1. */
+  --color-herb: #466c3a;
   --color-herb-light: #e8f1e2;
   --color-spice: #8b5a2b;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-script: var(--font-pacifico), "Brush Script MT", cursive;
+  /* Older names kept as aliases so existing classes keep working. */
+  --color-shef-orange: var(--color-copper);
+  --color-shef-orange-dark: var(--color-copper-dark);
+  --color-shef-cream: var(--color-cream);
+  --color-shef-navy: var(--color-cocoa);
+
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-script: var(--font-great-vibes), "Brush Script MT", cursive;
+  --font-hand: var(--font-caveat), "Bradley Hand", "Comic Sans MS", cursive;
+
+  --shadow-soft: 0 1px 2px rgb(74 44 35 / 0.06), 0 8px 24px -12px rgb(74 44 35 / 0.18);
+  --shadow-lift: 0 2px 4px rgb(74 44 35 / 0.06), 0 18px 36px -14px rgb(74 44 35 / 0.3);
 }
 
-body {
-  background: var(--color-shef-cream);
-  color: var(--color-shef-navy);
-  font-family: var(--font-sans);
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 4rem; /* sticky header is 3.5rem (44px row + padding) */
+  }
+
+  /* Font family comes from the `font-sans` class on <body>, where the next/font variables live. */
+  body {
+    background:
+      radial-gradient(60rem 30rem at 85% -10%, rgb(249 224 194 / 0.7), transparent 70%),
+      radial-gradient(40rem 24rem at -10% 20%, rgb(253 228 226 / 0.6), transparent 70%),
+      var(--color-cream);
+    background-repeat: no-repeat;
+    color: var(--color-cocoa);
+  }
+
+  ::selection {
+    background: var(--color-blush);
+    color: var(--color-cocoa);
+  }
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Transform only: the hero photo is the LCP element and must paint at once. */
+@keyframes soft-scale-in {
+  from {
+    transform: scale(0.95);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--tilt, 0deg));
+  }
+  50% {
+    transform: translateY(-5px) rotate(var(--tilt, 0deg));
+  }
+}
+
+/* Safety net: anything still pending after ~3s is shown even if the observer never fires. */
+@keyframes reveal-fallback {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+.animate-scale-in {
+  animation: soft-scale-in 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+/*
+ * Scroll reveal (see components/motion/Reveal). The server render is never hidden; Reveal marks
+ * only below-the-fold elements as pending after mount.
+ */
+[data-reveal] {
+  transition:
+    opacity 0.7s ease-out,
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal="pending"]:not([data-revealed]) {
+  opacity: 0;
+  transform: translateY(18px);
+  animation: reveal-fallback 0.6s ease-out 3s forwards;
+}
+
+/* Card hover and press lift. Hover only where a real pointer can hover (no sticky lift on touch). */
+.lift {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+@media (hover: hover) {
+  .lift:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+.lift:active {
+  transform: translateY(-1px);
+}
+
+/* Animated underline for text links. */
+.link-underline {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0% 2px;
+  transition: background-size 0.3s ease;
+}
+.link-underline:hover,
+.link-underline:focus-visible {
+  background-size: 100% 2px;
+}
+
+/* Smooth colour changes on buttons and chips. */
+.press {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+/* Blush brush-stroke highlight under a section heading. */
+.brush {
+  position: relative;
+  isolation: isolate;
+  display: inline-block;
+}
+.brush::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.3em;
+  right: -0.3em;
+  bottom: 0.05em;
+  height: 0.5em;
+  background: var(--color-blush);
+  opacity: 0.75;
+  border-radius: 0.6em 0.2em 0.7em 0.25em;
+  transform: skewX(-12deg) rotate(-1deg);
+}
+
+/* ---------- Reduced motion: no movement, instant states. ---------- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .lift:hover,
+  .lift:active,
+  .press:active {
+    transform: none;
+  }
+}
+
+/* Print everything, whether or not it has scrolled into view. */
+@media print {
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
 }

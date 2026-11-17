@@ -18,12 +18,12 @@ export default function ServingsScaler({ baseServings, ingredients }: ServingsSc
 
   return (
     <div>
-      <div className="rounded-xl bg-white p-4">
+      <div className="rounded-2xl bg-cream p-4 ring-1 ring-cocoa/10">
         <div className="flex items-baseline justify-between">
           <label htmlFor={id} className="font-semibold">
             Servings
           </label>
-          <output htmlFor={id} aria-hidden="true" className="text-xl font-bold text-shef-orange-dark">
+          <output htmlFor={id} aria-hidden="true" className="font-hand text-3xl leading-none font-bold text-copper-dark">
             {servings}
           </output>
         </div>

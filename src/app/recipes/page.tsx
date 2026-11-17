@@ -23,11 +23,18 @@ export default async function RecipesPage({ searchParams }: Props) {
 
   return (
     <main id="main" className="mx-auto max-w-5xl px-4 pt-8 pb-16">
-      <h1 className="text-3xl font-extrabold text-shef-navy">Recipes</h1>
+      <div className="animate-fade-up">
+        <p className="font-hand text-2xl text-herb">what are we cooking today?</p>
+        <h1 className="mt-1 text-4xl font-extrabold text-cocoa">
+          <span className="brush">Recipes</span>
+        </h1>
+      </div>
       <div className="mt-6 flex flex-col gap-6">
         <SearchBar key={filters.q} filters={filters} />
-        <FilterChips filters={filters} basePath="/recipes" />
-        <p aria-live="polite" className="text-shef-navy">
+        <div className="rounded-[1.75rem] bg-white/60 p-4 shadow-soft ring-1 ring-cocoa/10 sm:p-6">
+          <FilterChips filters={filters} basePath="/recipes" />
+        </div>
+        <p aria-live="polite" className="font-semibold text-cocoa-soft">
           {recipes.length} {recipes.length === 1 ? "recipe" : "recipes"}
         </p>
         <section aria-labelledby="results-heading">

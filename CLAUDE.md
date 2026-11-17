@@ -38,8 +38,13 @@ A slice is done only when `npm run check` passes (lint, types, unit, DB and buil
   `remix-photos` and `drafts` are private, read through signed URLs. Cloudflare R2 later if
   photos outgrow 1 GB.
 - Mobile first. WCAG 2.2 AA: alt text, contrast, keyboard access, 44px tap targets.
-- Brand: burnt orange `--color-shef-orange`, cream background, navy text, herb green accents,
-  script font for recipe titles and the wordmark logo only.
+- Brand (tokens in `src/app/globals.css`): cocoa brown text `--color-cocoa`, cream page
+  `--color-cream`, peach glow `--color-peach`, blush pink brush-stroke accents `--color-blush`
+  (decorative only), herb green `--color-herb`, copper primary actions `--color-copper` (old
+  `shef-orange`/`shef-cream`/`shef-navy` names are aliases). Fonts: Great Vibes script
+  (`font-script`) for recipe titles and the wordmark logo only, Caveat (`font-hand`) for small
+  handwritten notes, Nunito (`font-sans`) for everything else. Motion is CSS plus `Reveal`; it
+  must respect `prefers-reduced-motion`.
 
 ## Commands
 

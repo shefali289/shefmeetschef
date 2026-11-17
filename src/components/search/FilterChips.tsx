@@ -11,6 +11,14 @@ const GROUPS: { key: Group; label: string; values: readonly string[] }[] = [
   { key: "diet", label: "Diet", values: DIET_TAGS },
 ];
 
+function Check() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" className="h-4 w-4 text-copper">
+      <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function FilterChips({ filters, basePath }: { filters: Filters; basePath: string }) {
   const router = useRouter();
 
@@ -24,7 +32,7 @@ export default function FilterChips({ filters, basePath }: { filters: Filters; b
     <div className="flex flex-col gap-4">
       {GROUPS.map((group) => (
         <fieldset key={group.key}>
-          <legend className="mb-2 text-sm font-bold uppercase tracking-wide text-shef-navy">
+          <legend className="mb-2 font-hand text-2xl leading-none text-cocoa">
             {group.label}
           </legend>
           <div className="flex flex-wrap gap-2">
@@ -36,12 +44,13 @@ export default function FilterChips({ filters, basePath }: { filters: Filters; b
                   type="button"
                   aria-pressed={pressed}
                   onClick={() => toggle(group.key, value)}
-                  className={`inline-flex min-h-11 items-center rounded-full border-2 px-4 font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-shef-navy ${
+                  className={`press inline-flex min-h-11 items-center gap-1.5 rounded-full border-2 px-4 font-semibold focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-copper ${
                     pressed
-                      ? "border-shef-orange bg-shef-orange text-white"
-                      : "border-shef-orange bg-white text-shef-navy hover:bg-shef-cream"
+                      ? "border-copper bg-blush-light text-cocoa shadow-soft"
+                      : "border-cocoa/40 bg-white/90 text-cocoa hover:border-copper hover:bg-blush-light/60"
                   }`}
                 >
+                  {pressed && <Check />}
                   {humanLabel(value)}
                 </button>
               );

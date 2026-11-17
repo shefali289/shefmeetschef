@@ -31,7 +31,7 @@ export default function SearchBar({
         maxLength={Q_MAX}
         defaultValue={filters.q}
         placeholder="Search chai, paneer, noodles..."
-        className="min-h-11 w-full min-w-0 flex-1 rounded-full border-2 border-shef-orange bg-white px-4 text-shef-navy placeholder:text-shef-navy/70 focus-visible:border-shef-orange focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-shef-navy"
+        className="min-h-11 w-full min-w-0 flex-1 rounded-full border-2 border-shef-orange bg-white px-5 text-cocoa shadow-soft placeholder:text-cocoa/70 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cocoa"
       />
       {/* Keep the current filters when the form is submitted without JavaScript. */}
       {GROUP_KEYS.flatMap((key) =>
@@ -39,7 +39,7 @@ export default function SearchBar({
       )}
       <button
         type="submit"
-        className="inline-flex min-h-11 items-center rounded-full bg-shef-orange px-5 font-semibold text-white hover:bg-shef-orange-dark focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-shef-navy"
+        className="press inline-flex min-h-11 items-center rounded-full bg-copper px-5 font-bold text-white shadow-soft hover:bg-copper-dark focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cocoa"
       >
         Search
       </button>
