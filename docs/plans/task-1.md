@@ -74,3 +74,18 @@ E2E `tests/e2e/admin.spec.ts`.
 ## Risks
 - `next/font/google` needs network at build; fall back to `next/font/local` if blocked.
 - Instagram tokens expire after 60 days; auto refresh comes with the daily job in a later task.
+
+## As built (drift from the plan above)
+- Slice A: a fifth migration `..._import_skips.sql` (admin-only table of posts not to re-import);
+  extra tests `tests/db/remixes-rls.test.ts` and `tests/db/import-skips-rls.test.ts`. Buckets have a
+  5 MB limit and JPEG/PNG/WebP only. Users cannot set remix status.
+- Slice B/C: shared helpers `src/lib/{site,share-image,labels,filters-query,taxonomy}.ts`,
+  `SkipLink`, `HerbSprig`, `public/og-default.png` and a placeholder `public/shef-avatar.svg`.
+  Script font is used for recipe titles and the wordmark logo. Brand orange is `#B84A1A` for contrast.
+- Slice D: `src/lib/auth/{session,safe-redirect,admin-sign-in}.ts`, POST-only sign-out with an
+  Origin check, `HeaderAuth`, `src/lib/draft-{limits,form}.ts`, `src/lib/import/copy-cover.ts`
+  (covers are copied into `recipe-images` on publish because Instagram thumbnail links expire),
+  and the last import summary kept in a small cookie. Each import run parses at most 3 posts;
+  no-recipe and invalid captions are remembered in `import_skips`, transient errors are retried.
+- Known follow-up: the header reads the session cookie, so pages render per request once
+  Supabase is configured (ISR does not apply). Fine for launch traffic; revisit in task 4.

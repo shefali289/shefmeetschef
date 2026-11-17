@@ -39,7 +39,7 @@ A slice is done only when `npm run check` passes (lint, types, unit, DB and buil
   photos outgrow 1 GB.
 - Mobile first. WCAG 2.2 AA: alt text, contrast, keyboard access, 44px tap targets.
 - Brand: burnt orange `--color-shef-orange`, cream background, navy text, herb green accents,
-  script font for recipe titles only.
+  script font for recipe titles and the wordmark logo only.
 
 ## Commands
 
