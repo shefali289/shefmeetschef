@@ -429,3 +429,19 @@ Reuse `GeminiError`, `GEMINI_DEFAULT_MODEL`, `requireAdminClient`, `adminGate`.
     Is that big enough? Default: yes.
 12. Should the admin get an alert when the queue has remixes waiting? Default: no alert in task 3, a
     count on the admin page only.
+
+## As built (drift from the plan above)
+- Slice A: hardening after review in 000003/000005: invisible-space-only text refused, emails never
+  shown as names, `remix_photo_in_use` limited to the caller's folder, at most 5 unused photos per
+  user, an advisory lock on upload counts, and a guard that the migration role bypasses RLS.
+- Slice B: one persistent status region per remix section; focus moves to the remixes heading after
+  delete. The recipe page shows 6 remixes and leaves the viewer's own out of the public list.
+- Slice C: `remix_feed` gained `p_remix_id` (drop and recreate in 000006) so the winner is read
+  directly. `pickWinner` lives in `src/app/admin/challenges/actions.ts`. The home page uses a
+  cookie-free public client and can be up to an hour stale at NZ midnight.
+- Slice D: report reason is 300 chars; banned reporters don't count toward the 3; the report
+  trigger locks with `for no key update` (avoids a deadlock with the FK check). The moderation
+  queue uses two bounded queries and shows an error instead of an empty queue on failure.
+  `markOwn` hides Report on your own remixes. Gemini moderation timeout stays 8 s.
+- Tests live in extra `*.challenge`, `*.moderation`, `*.own` and `*.report` test files next to the
+  originals so parallel work did not clash.

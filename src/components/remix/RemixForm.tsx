@@ -46,6 +46,11 @@ function problem(result: RemixFormState): string | null {
   }
 }
 
+/** A remix was posted: pending, live at once, or hidden by the AI check. */
+function posted(result: RemixFormState) {
+  return result?.status === "pending" || result?.status === "approved" || result?.status === "hidden" ? result : null;
+}
+
 /**
  * Photo and "what you changed". The photo is resized in the browser and uploaded straight to the
  * user's own remix-photos folder with their session (never overwriting); the server action gets
@@ -111,10 +116,11 @@ export default function RemixForm({
       formData.set("photo_path", path);
       formData.set("changes", text.value);
       const res = await action(null, formData);
-      focusLimit.current = res?.status === "limit" || (res?.status === "pending" && res.remaining <= 0);
+      const done = posted(res);
+      focusLimit.current = res?.status === "limit" || (done !== null && done.remaining <= 0);
       setResult(res);
-      if (res?.status === "pending") {
-        setLeft(res.remaining);
+      if (done) {
+        setLeft(done.remaining);
         setChanges("");
         if (fileRef.current) fileRef.current.value = "";
       }
@@ -131,6 +137,7 @@ export default function RemixForm({
   const limitMessage =
     result?.status === "limit" ? result.message : left <= 0 ? limitReachedText("remix", limit) : null;
   const error = localError ?? problem(result);
+  const thanks = posted(result);
 
   useEffect(() => {
     if (limitMessage && focusLimit.current) limitRef.current?.focus();
@@ -141,8 +148,12 @@ export default function RemixForm({
     <div className="space-y-4">
       {/* One persistent live region: the thanks message and, once none are left, the limit box. */}
       <div role="status" className="space-y-4">
-        {result?.status === "pending" && (
-          <p className="rounded-2xl bg-white p-4 font-semibold text-herb ring-1 ring-herb/30">{result.message}</p>
+        {thanks && (
+          <p
+            className={`rounded-2xl bg-white p-4 font-semibold ring-1 ${thanks.status === "hidden" ? "text-cocoa ring-cocoa/10" : "text-herb ring-herb/30"}`}
+          >
+            {thanks.message}
+          </p>
         )}
         {limitMessage && (
           <p

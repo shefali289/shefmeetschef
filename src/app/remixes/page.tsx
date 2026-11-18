@@ -3,7 +3,7 @@ import Link from "next/link";
 import RemixList from "@/components/remix/RemixList";
 import { getViewer } from "@/lib/auth/session";
 import { getRecipeBySlug } from "@/lib/recipes";
-import { asUuid, loadRemixFeed, markLiked } from "@/lib/remix/feed";
+import { asUuid, loadRemixFeed, markLiked, markOwn } from "@/lib/remix/feed";
 import { REMIX_NOT_CONFIGURED } from "@/lib/remix/status";
 
 type Props = {
@@ -37,7 +37,9 @@ export default async function RemixesPage({ searchParams }: Props) {
     recipeTitle = recipe?.title ?? null;
     const challengeId = asUuid(one(params.challenge));
     const feed = await loadRemixFeed(viewer.supabase, { recipeId: recipe?.id, challengeId, page: one(params.page) });
-    const cards = viewer.user ? await markLiked(viewer.supabase, viewer.user.id, feed.cards) : feed.cards;
+    const cards = viewer.user
+      ? await markOwn(viewer.supabase, viewer.user.id, await markLiked(viewer.supabase, viewer.user.id, feed.cards))
+      : feed.cards;
 
     const query = (page: number) => {
       const q = new URLSearchParams();

@@ -1,36 +1,18 @@
 "use server";
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { cookbookUser } from "@/app/cookbook/action-auth";
 import { fields, firstIssue, uuidField as id } from "@/app/cookbook/validation";
-import { safeNext } from "@/lib/auth/safe-redirect";
 import { REMIX_PHOTOS_BUCKET } from "@/lib/remix/photos";
 import { REMIX_NOT_CONFIGURED } from "@/lib/remix/status";
 import type { LikeState, RemixActionState } from "@/lib/remix/types";
+import { returnPath, revalidateRemixes as revalidate } from "./paths";
 
-const REMIXES_PATH = "/remixes";
 const TRY_AGAIN = "Something went wrong. Please try again in a minute.";
 const CANT_LIKE = "You can't like this remix right now.";
 const NO_REMIX = "We couldn't find that remix. It may already be deleted.";
 
 const ToggleLike = z.object({ remix_id: id, intent: z.enum(["like", "unlike"]) });
 const DeleteRemix = z.object({ remix_id: id });
-
-/** A same-site return path from the form, else /remixes. */
-function returnPath(formData: FormData): string {
-  const value = formData.get("return_to");
-  return typeof value === "string" && value ? safeNext(value) : REMIXES_PATH;
-}
-
-/** A recipe page: /recipes/<slug>, ignoring any query or hash. */
-const RECIPE_PAGE = /^\/recipes\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:[?#]|$)/;
-
-/** Refreshes /remixes, and the recipe page the action came from (never any other path). */
-function revalidate(returnTo: string) {
-  revalidatePath(REMIXES_PATH);
-  const recipe = RECIPE_PAGE.exec(returnTo);
-  if (recipe) revalidatePath(`/recipes/${recipe[1]}`);
-}
 
 /** Fields: remix_id, intent ("like" | "unlike"), return_to (optional same-site path). */
 export async function toggleLike(_prev: LikeState, formData: FormData): Promise<LikeState> {

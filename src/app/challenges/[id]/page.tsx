@@ -11,7 +11,7 @@ import { adminGate, getViewer } from "@/lib/auth/session";
 import { getChallenge } from "@/lib/challenges/challenges";
 import { daysLeftText, formatChallengeDates, nzToday } from "@/lib/challenges/dates";
 import { CHALLENGES_NOT_CONFIGURED } from "@/lib/challenges/types";
-import { markLiked } from "@/lib/remix/feed";
+import { markLiked, markOwn } from "@/lib/remix/feed";
 import PickWinnerForm from "./PickWinnerForm";
 
 type Props = { params: Promise<{ id: string }> };
@@ -62,8 +62,11 @@ export default async function ChallengePage({ params }: Props) {
   if (!detail) notFound();
 
   const { challenge, open, ended, hasMore } = detail;
-  // Whether each heart starts pressed: the viewer's own likes, read through their session.
-  const entries = viewer.user ? await markLiked(viewer.supabase, viewer.user.id, detail.entries) : detail.entries;
+  // Whether each heart starts pressed and which entries are the viewer's own (no Report), read
+  // through the viewer's own session.
+  const entries = viewer.user
+    ? await markOwn(viewer.supabase, viewer.user.id, await markLiked(viewer.supabase, viewer.user.id, detail.entries))
+    : detail.entries;
   const returnTo = `/challenges/${challenge.id}`;
 
   return (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { adminGate } from "@/lib/auth/session";
+import { countWaitingRemixes } from "@/lib/moderation/queue";
 import { importNow } from "./actions";
 import { readLastImportCookie, type LastImport } from "./last-import";
 
@@ -84,12 +85,15 @@ export default async function AdminPage({
   const gate = await adminGate();
   if (gate.state !== "admin") return null; // the layout already shows the right message
 
-  const { data, error } = await gate.supabase
-    .from("recipes")
-    .select("id, title, slug, created_at, instagram_id, youtube_id")
-    .eq("status", "draft")
-    .order("created_at", { ascending: false })
-    .returns<DraftListRow[]>();
+  const [{ data, error }, waiting] = await Promise.all([
+    gate.supabase
+      .from("recipes")
+      .select("id, title, slug, created_at, instagram_id, youtube_id")
+      .eq("status", "draft")
+      .order("created_at", { ascending: false })
+      .returns<DraftListRow[]>(),
+    countWaitingRemixes(gate.supabase),
+  ]);
   const drafts = data ?? [];
   const last = readLastImportCookie(await cookies());
   const { published } = await searchParams;
@@ -104,6 +108,15 @@ export default async function AdminPage({
       )}
 
       <nav aria-label="Admin sections" className="mt-4 flex flex-wrap gap-3">
+        <Link
+          href="/admin/remixes"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-copper bg-white px-5 font-semibold text-cocoa hover:bg-blush-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-copper"
+        >
+          Remixes to check
+          {waiting !== null && waiting > 0 && (
+            <span className="rounded-full bg-copper px-2 py-0.5 text-sm font-bold text-white">{waiting} waiting</span>
+          )}
+        </Link>
         <Link
           href="/admin/challenges"
           className="inline-flex min-h-11 items-center rounded-full border-2 border-copper bg-white px-5 font-semibold text-cocoa hover:bg-blush-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-copper"

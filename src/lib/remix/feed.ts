@@ -2,7 +2,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { signRemixPhotos } from "./photos";
-import type { OwnRemixCard, RemixCardData, RemixFeedPage, RemixFeedRow, RemixStatus } from "./types";
+import type { HiddenBy, OwnRemixCard, RemixCardData, RemixFeedPage, RemixFeedRow, RemixStatus } from "./types";
 
 export { statusLabel } from "./status";
 
@@ -77,6 +77,8 @@ type OwnRow = {
   changes: string | null;
   photo_path: string | null;
   created_at: string;
+  hidden_by: HiddenBy | null;
+  ai_reason: string | null;
 };
 
 /** The viewer's own remixes of one recipe, any status, newest first, read through their session (RLS). */
@@ -89,7 +91,7 @@ export async function loadOwnRemixes(
 ): Promise<OwnRemixCard[]> {
   const { data, error } = await supabase
     .from("remixes")
-    .select("id, recipe_id, status, challenge_id, changes, photo_path, created_at")
+    .select("id, recipe_id, status, challenge_id, changes, photo_path, created_at, hidden_by, ai_reason")
     .eq("recipe_id", recipeId)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -109,7 +111,37 @@ export async function loadOwnRemixes(
     photoUrl: r.photo_path ? (urls[r.photo_path] ?? null) : null,
     liked: false,
     status: r.status,
+    hiddenBy: r.hidden_by ?? null,
+    // Only the AI's reason for hiding it; never for a remix waiting for review or live.
+    aiReason: r.status === "hidden" && r.hidden_by === "ai" ? (r.ai_reason ?? null) : null,
   }));
+}
+
+/**
+ * Marks the cards the viewer posted (mine), read through their session (RLS: own rows). Signed out,
+ * no cards or a read error: the cards unchanged.
+ */
+export async function markOwn<T extends RemixCardData>(
+  supabase: SupabaseClient,
+  userId: string | null,
+  cards: T[],
+): Promise<T[]> {
+  if (!userId || cards.length === 0) return cards;
+  try {
+    const { data, error } = await supabase
+      .from("remixes")
+      .select("id")
+      .eq("user_id", userId)
+      .in(
+        "id",
+        cards.map((c) => c.id),
+      );
+    if (error || !Array.isArray(data)) return cards;
+    const own = new Set((data as { id: string }[]).map((r) => r.id));
+    return cards.map((c) => ({ ...c, mine: own.has(c.id) }));
+  } catch {
+    return cards;
+  }
 }
 
 /** Marks the cards the viewer has liked (their own likes, read through RLS). */

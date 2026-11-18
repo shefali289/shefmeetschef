@@ -3,10 +3,12 @@ import { revalidatePath } from "next/cache";
 import { cookbookUser } from "@/app/cookbook/action-auth";
 import { FREE_LIMITS } from "@/lib/limits";
 import { getRecipeBySlug, SLUG_RE } from "@/lib/recipes";
+import { moderateRemix } from "@/lib/remix/moderate";
 import { REMIX_PHOTOS_BUCKET } from "@/lib/remix/photos";
 import { postRemix, REMIX_NOT_FOUND_TEXT } from "@/lib/remix/post-remix";
 import { REMIX_NOT_CONFIGURED } from "@/lib/remix/status";
 import type { RemixFormState } from "@/lib/remix/types";
+import { applyAiVerdict } from "@/lib/supabase/service";
 import { usageRemaining } from "@/lib/usage";
 
 /** Form fields: slug, photo_path (already uploaded to the user's folder), changes. */
@@ -17,6 +19,7 @@ export async function postRemixAction(_prev: RemixFormState, formData: FormData)
   if (!auth) return { status: "not-configured", message: REMIX_NOT_CONFIGURED };
   const { supabase, user } = auth;
   const photos = supabase.storage.from(REMIX_PHOTOS_BUCKET);
+  const geminiKey = process.env.GEMINI_API_KEY;
 
   const result = await postRemix(
     { userId: user.id, slug, photoPath: formData.get("photo_path"), changes: formData.get("changes") },
@@ -35,10 +38,13 @@ export async function postRemixAction(_prev: RemixFormState, formData: FormData)
       },
       remaining: () => usageRemaining(supabase, "remix", FREE_LIMITS.remix),
       isBanned: async () => (await supabase.rpc("is_banned")).data === true,
+      // Without Gemini the remix stays pending for the admin.
+      ...(geminiKey ? { moderate: (input) => moderateRemix(input, { apiKey: geminiKey, fetch }) } : {}),
+      applyVerdict: applyAiVerdict,
     },
   );
 
-  if (result.status === "pending") {
+  if (result.status === "pending" || result.status === "approved" || result.status === "hidden") {
     revalidatePath(`/recipes/${slug}`);
     revalidatePath("/remixes");
   }

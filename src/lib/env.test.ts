@@ -92,3 +92,46 @@ describe("env and server-only guards", () => {
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });
 });
+
+/* ---------- Task 3 slice C review (N8): the challenge read model is server-only ---------- */
+// Added without changing the lists above (another slice extends them): the read model joins
+// SERVER_MODULES here, and its import pattern is checked with its own regex.
+SERVER_MODULES.push(join(SRC, "lib/challenges/challenges.ts"));
+
+const CHALLENGES_SERVER_IMPORT =
+  /from\s+["'](?:@\/lib\/challenges\/challenges|\.{1,2}\/(?:.*\/)?challenges\/challenges|\.\/challenges)["']/;
+
+describe("challenge read model guards (task 3 slice C)", () => {
+  it("SERVER_MODULES includes lib/challenges/challenges.ts", () => {
+    expect(SERVER_MODULES).toContain(join(SRC, "lib/challenges/challenges.ts"));
+    expect(readFileSync(join(SRC, "lib/challenges/challenges.ts"), "utf8")).toMatch(/^\s*import\s+["']server-only["'];?\s*$/m);
+  });
+
+  it("the client import guard catches lib/challenges/challenges and allows dates and types", () => {
+    for (const bad of [
+      `import { getChallenge } from "@/lib/challenges/challenges";`,
+      `import { listChallenges } from "../../lib/challenges/challenges";`,
+      `import { getCurrentChallenge } from "./challenges";`,
+    ]) {
+      expect({ bad, flagged: CHALLENGES_SERVER_IMPORT.test(bad) }).toEqual({ bad, flagged: true });
+    }
+    for (const ok of [
+      `import { nzToday } from "@/lib/challenges/dates";`,
+      `import type { Challenge } from "@/lib/challenges/types";`,
+      `import ChallengeBanner from "@/components/challenges/ChallengeBanner";`,
+      `import { defaultChallengeWeek } from "./dates";`,
+    ]) {
+      expect({ ok, flagged: CHALLENGES_SERVER_IMPORT.test(ok) }).toEqual({ ok, flagged: false });
+    }
+  });
+
+  it("no client component imports lib/challenges/challenges", () => {
+    const offenders = walk(SRC)
+      .filter((f) => resolve(f) !== SELF)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8");
+        return /^\s*["']use client["']/.test(src) && CHALLENGES_SERVER_IMPORT.test(src);
+      });
+    expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
+  });
+});

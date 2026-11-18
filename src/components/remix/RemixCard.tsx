@@ -3,11 +3,13 @@ import { deleteRemix } from "@/app/remixes/actions";
 import ConfirmDelete from "@/components/cookbook/ConfirmDelete";
 import RecipePlaceholder from "@/components/recipe/RecipePlaceholder";
 import { statusLabel } from "@/lib/remix/status";
-import type { RemixCardData, RemixStatus } from "@/lib/remix/types";
+import type { OwnRemixCard, RemixCardData, RemixStatus } from "@/lib/remix/types";
 import LikeButton from "./LikeButton";
+import ReportButton from "./ReportButton";
 
 export interface RemixCardProps {
-  remix: RemixCardData;
+  /** The owner's cards may carry why it is hidden (hiddenBy, aiReason). */
+  remix: RemixCardData & Partial<Pick<OwnRemixCard, "hiddenBy" | "aiReason">>;
   signedIn: boolean;
   /** Where sign-in links send the visitor back to. */
   returnTo: string;
@@ -26,6 +28,8 @@ const STATUS_STYLE: Record<RemixStatus, string> = {
 /** One remix: photo, who made it, what they changed (plain text) and its likes. */
 export default function RemixCard({ remix, signedIn, returnTo, ownStatus, showRecipe = true }: RemixCardProps) {
   const own = ownStatus !== undefined;
+  const label = own ? statusLabel(ownStatus, { hiddenBy: remix.hiddenBy, aiReason: remix.aiReason }) : null;
+  const why = own && label !== statusLabel(ownStatus) ? label : null;
   const alt = own ? `Your remix of ${remix.recipeTitle}` : `${remix.authorName}'s remix of ${remix.recipeTitle}`;
 
   return (
@@ -60,6 +64,8 @@ export default function RemixCard({ remix, signedIn, returnTo, ownStatus, showRe
             </span>
           )}
         </div>
+        {/* Why it is hidden, in full below the short pill (the AI's reason or "while Shef takes a look"). */}
+        {why && <p className="text-sm font-semibold text-cocoa">{why}</p>}
         <p className="leading-relaxed break-words whitespace-pre-line text-cocoa">{remix.changes}</p>
         <div className="mt-auto">
           {own ? (
@@ -72,14 +78,24 @@ export default function RemixCard({ remix, signedIn, returnTo, ownStatus, showRe
               focusAfterId="remixes-heading"
             />
           ) : (
-            <LikeButton
-              remixId={remix.id}
-              authorName={remix.authorName}
-              count={remix.likeCount}
-              liked={remix.liked}
-              signedIn={signedIn}
-              returnTo={returnTo}
-            />
+            <div className="flex flex-wrap items-start gap-2">
+              <LikeButton
+                remixId={remix.id}
+                authorName={remix.authorName}
+                count={remix.likeCount}
+                liked={remix.liked}
+                signedIn={signedIn}
+                returnTo={returnTo}
+              />
+              {/* Keeps the like count and "Report" apart in the text content (screen readers, tests). */}{" "}
+              <ReportButton
+                remixId={remix.id}
+                authorName={remix.authorName}
+                signedIn={signedIn}
+                own={remix.mine === true}
+                returnTo={returnTo}
+              />
+            </div>
           )}
         </div>
       </div>
