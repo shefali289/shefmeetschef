@@ -69,3 +69,19 @@ delete from public.import_skips where reason = 'failed';   -- only failed ones
   month (NZ time), 30 cookbook saves. Outside reels don't count toward the 30 saves.
 - Outside reel recipes are private to their owner (404 for everyone else) and never appear in
   search. Owners can delete them from "My reels" in `/cookbook`; deleting doesn't give the reel back.
+
+## Task 3 moderation (remixes)
+
+- **Add `SUPABASE_SERVICE_ROLE_KEY` in Netlify yourself** (Site configuration > Environment
+  variables; the value is in Supabase under Project settings > API > `service_role`). It is
+  server-only: never prefix it with `NEXT_PUBLIC_` and never put it in the repo. It is used for one
+  thing only, applying Gemini's check to a new remix. Without it (or without `GEMINI_API_KEY`) new
+  remixes stay "Waiting for a quick check" until you approve them.
+- Run the task 3 migrations (`20261119...0001` to `...0008`) in order before deploying.
+  `...0005` stops with an error if the migration role cannot bypass row level security on
+  storage (it can on a normal Supabase project); if you see that error, tell Claude.
+- After deploying, a quick check by hand: as a signed-out visitor, a pending remix's photo link
+  must not open, and an approved one must.
+- `/admin/remixes` lists remixes waiting for a check and reported remixes, with approve, hide and
+  ban. The `/admin` page shows how many are waiting. Three reports from different cooks hide a
+  remix until you look at it.

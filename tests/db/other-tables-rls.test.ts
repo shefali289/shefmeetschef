@@ -2,7 +2,7 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  asAdmin, asAnon, asSuper, asUser, createDb, createUser, expectBlockedWrite, insertRecipe, makeAdmin, visibleRows,
+  asAdmin, asAnon, asSuper, asUser, createDb, createUser, expectBlockedWrite, insertRecipe, makeAdmin, seedRemix, visibleRows,
 } from "./helpers/db";
 
 let db: PGlite;
@@ -26,16 +26,14 @@ beforeAll(async () => {
     [recipe.id, alice, `${alice}/remix.jpg`],
   );
   remixId = rows[0].id;
-  const bobRows = await asSuper<{ id: string }>(
-    db,
-    `insert into remixes (recipe_id, user_id, photo_path) values ($1, $2, $3) returning id`,
-    [recipe.id, bob, `${bob}/remix.jpg`],
-  );
-  bobRemixId = bobRows[0].id;
+  // CHANGED IN TASK 3 (slice A, on purpose): likes need an approved remix, so Bob's remix is
+  // seeded approved, with its photo and "what I changed" text (both now required).
+  bobRemixId = (await seedRemix(db, { recipe_id: recipe.id, user_id: bob, status: "approved", changes: "no onion" })).id;
 });
 
 describe("likes, usage and challenges RLS", () => {
   it("likes are own-row only", async () => {
+    // Bob likes his own approved remix (allowed); before task 3 this remix was pending.
     const like = await asUser(db, bob, async (tx) =>
       (await tx.query<{ user_id: string }>(`insert into likes (remix_id) values ($1) returning user_id`, [bobRemixId])).rows[0],
     );

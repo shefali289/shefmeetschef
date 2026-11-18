@@ -1,7 +1,7 @@
 import { cache } from "react";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { sampleRecipes } from "@/lib/sample-recipes";
-import { supabaseConfig } from "./supabase/config";
+import { createPublicSupabaseClient } from "./supabase/public";
 import { RecipeSchema, type Recipe } from "./types";
 
 /** Valid recipe slug: lowercase words joined by single hyphens. */
@@ -13,12 +13,9 @@ function isPublic(r: Recipe): boolean {
 
 /** Live Shef recipes from Supabase, or the bundled samples when Supabase is not set up. */
 async function fetchRecipes(slug?: string): Promise<Recipe[]> {
-  const config = supabaseConfig();
-  if (!config) return sampleRecipes.filter((r) => isPublic(r) && (!slug || r.slug === slug));
+  const supabase = createPublicSupabaseClient();
+  if (!supabase) return sampleRecipes.filter((r) => isPublic(r) && (!slug || r.slug === slug));
 
-  const supabase = createClient(config.url, config.anonKey, {
-    auth: { persistSession: false },
-  });
   let query = supabase
     .from("recipes")
     .select("*")

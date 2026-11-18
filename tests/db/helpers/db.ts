@@ -186,4 +186,64 @@ export async function pgErrorOf(run: () => Promise<unknown>): Promise<{ code: st
   throw new Error("expected the statement to fail, but it succeeded");
 }
 
+export type RemixStatus = "pending" | "approved" | "hidden";
+
+export type RemixSeed = {
+  recipe_id: string;
+  user_id: string;
+  status?: RemixStatus;
+  /** Defaults to a fresh `<uid>/<uuid>.jpg`. */
+  photo_path?: string;
+  changes?: string;
+  challenge_id?: string | null;
+  created_at?: string;
+  /** Also create the remix-photos object named photo_path (default true). */
+  withPhoto?: boolean;
+};
+
+/**
+ * Inserts a remix as superuser (seeding, like moderation would leave it; the task 3 insert trigger
+ * only applies to anon and authenticated). By default it also creates the photo object in
+ * remix-photos. Returns { id, photo_path }.
+ */
+export async function seedRemix(db: PGlite, r: RemixSeed) {
+  const photo = r.photo_path ?? `${r.user_id}/${randomUUID()}.jpg`;
+  if (r.withPhoto ?? true) {
+    await db.query(`insert into storage.objects (bucket_id, name, owner) values ('remix-photos', $1, $2)`, [photo, r.user_id]);
+  }
+  const res = await db.query<{ id: string; photo_path: string }>(
+    `insert into public.remixes (recipe_id, user_id, photo_path, changes, status, challenge_id, created_at)
+     values ($1, $2, $3, $4, $5, $6, coalesce($7::timestamptz, now()))
+     returning id, photo_path`,
+    [r.recipe_id, r.user_id, photo, r.changes ?? "less salt", r.status ?? "pending", r.challenge_id ?? null, r.created_at ?? null],
+  );
+  return res.rows[0];
+}
+
+/**
+ * Uploads an object as the signed-in user, through storage RLS, like the browser does with the
+ * user's session (the Storage API sets owner to the caller). Defaults to a fresh
+ * `remix-photos/<uid>/<uuid>.jpg`. Returns the object name.
+ */
+export async function uploadObject(
+  db: PGlite,
+  uid: string,
+  opts: { bucket?: string; name?: string } = {},
+): Promise<string> {
+  const name = opts.name ?? `${uid}/${randomUUID()}.jpg`;
+  await asUser(db, uid, (tx) =>
+    tx.query(`insert into storage.objects (bucket_id, name, owner) values ($1, $2, $3)`, [opts.bucket ?? "remix-photos", name, uid]),
+  );
+  return name;
+}
+
+/** Records a ban as superuser (task 3 slice D adds the admin function). */
+export async function banUser(db: PGlite, uid: string, opts: { reason?: string; by?: string | null } = {}) {
+  await db.query(`insert into public.bans (user_id, reason, banned_by) values ($1, $2, $3)`, [
+    uid,
+    opts.reason ?? "spam",
+    opts.by ?? null,
+  ]);
+}
+
 export { randomUUID as uuid };

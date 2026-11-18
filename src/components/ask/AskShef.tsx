@@ -8,6 +8,7 @@ import {
   type ShefVersion,
 } from "@/lib/ask-shef/types";
 import { FREE_LIMITS, limitReachedText, questionsLeftText } from "@/lib/limits";
+import { saveRemixPrefill, shefVersionToChanges } from "@/lib/remix/changes";
 import ShefVersionToggle from "./ShefVersionToggle";
 
 export interface AskShefProps {
@@ -22,6 +23,8 @@ export interface AskShefProps {
   /** The recipe on screen, for the Shef's version toggle. */
   original: ShefVersion;
   action: (prev: AskResult | null, formData: FormData) => Promise<AskResult>;
+  /** Offer "Post this as my remix" under Shef's version (opt-in: Shef recipes only, not outside reels). */
+  remixable?: boolean;
 }
 
 interface Entry {
@@ -78,6 +81,27 @@ function AnswerCard({ entry }: { entry: Entry }) {
   );
 }
 
+/** Shef's version, then a link to post it as a remix with "what I changed" filled in. */
+function VersionAndRemix({ slug, original, version, remixable }: { slug: string; original: ShefVersion; version: ShefVersion; remixable: boolean }) {
+  return (
+    <>
+      <ShefVersionToggle original={original} version={version} />
+      {remixable && (
+        <p className="mt-3">
+          <Link
+            href={`/recipes/${slug}/remix`}
+            // Stored only when they choose to post it, for this recipe, until the form reads it.
+            onClick={() => saveRemixPrefill(slug, shefVersionToChanges(original, version))}
+            className={`${button} border-2 border-copper bg-white text-cocoa hover:bg-blush-light`}
+          >
+            Post this as my remix
+          </Link>
+        </p>
+      )}
+    </>
+  );
+}
+
 function reduce(prev: State, res: AskResult): State {
   const base = { ...prev, last: res, error: null, newestInRegion: false };
   switch (res.status) {
@@ -110,6 +134,7 @@ export default function AskShef({
   limit = FREE_LIMITS.ask,
   original,
   action,
+  remixable = false,
 }: AskShefProps) {
   const headingId = useId();
   const fieldId = useId();
@@ -173,7 +198,9 @@ export default function AskShef({
             {older.map((e, i) => (
               <li key={i}>
                 <AnswerCard entry={e} />
-                {e.shefVersion && <ShefVersionToggle original={original} version={e.shefVersion} />}
+                {e.shefVersion && (
+                  <VersionAndRemix slug={slug} original={original} version={e.shefVersion} remixable={remixable} />
+                )}
               </li>
             ))}
           </ol>
@@ -189,7 +216,9 @@ export default function AskShef({
             <p className="rounded-2xl bg-white p-4 font-semibold ring-1 ring-cocoa/10">{state.limitMessage}</p>
           ) : null}
         </div>
-        {!pending && newest?.shefVersion && <ShefVersionToggle original={original} version={newest.shefVersion} />}
+        {!pending && newest?.shefVersion && (
+          <VersionAndRemix slug={slug} original={original} version={newest.shefVersion} remixable={remixable} />
+        )}
         {!pending && newest && state.limitMessage && (
           <p className="mt-5 rounded-2xl bg-white p-4 font-semibold ring-1 ring-cocoa/10">{state.limitMessage}</p>
         )}

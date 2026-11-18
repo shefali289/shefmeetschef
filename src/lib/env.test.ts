@@ -23,11 +23,17 @@ const SERVER_MODULES = [
   // Ask Shef calls Gemini with GEMINI_API_KEY; run-ask orchestrates it with usage counting
   join(SRC, "lib/ask-shef/ask-shef.ts"),
   join(SRC, "lib/ask-shef/run-ask.ts"),
+  // Task 3 slice B: posting remixes (Storage downloads with the session) and signing remix photos
+  join(SRC, "lib/remix/post-remix.ts"),
+  join(SRC, "lib/remix/photos.ts"),
+  // Slice B review NIT8: the feed signs photos through photos.ts, so it is server-only too
+  join(SRC, "lib/remix/feed.ts"),
 ];
 
 // Server-only modules a client component must never import (types.ts and handle.ts are shared).
+// Task 3 slice B adds remix/post-remix and remix/photos (remix/photo, changes, types are shared).
 const SERVER_IMPORT =
-  /from\s+["'](?:@\/lib\/import\/|\.{1,2}\/(?:.*\/)?import\/|@\/lib\/ask-shef\/(?:ask-shef|run-ask)["']|@\/lib\/outside\/add-reel["']|\.{1,2}\/(?:.*\/)?(?:ask-shef\/(?:ask-shef|run-ask)|outside\/add-reel)["'])/;
+  /from\s+["'](?:@\/lib\/import\/|\.{1,2}\/(?:.*\/)?import\/|@\/lib\/ask-shef\/(?:ask-shef|run-ask)["']|@\/lib\/outside\/add-reel["']|@\/lib\/remix\/(?:post-remix|photos|feed)["']|\.{1,2}\/(?:.*\/)?(?:ask-shef\/(?:ask-shef|run-ask)|outside\/add-reel|remix\/(?:post-remix|photos|feed))["']|\.\/(?:post-remix|photos|feed)["'])/;
 
 describe("env and server-only guards", () => {
   it("the client import guard catches the server modules and allows shared ones", () => {
@@ -37,6 +43,11 @@ describe("env and server-only guards", () => {
       `import { addReel } from "@/lib/outside/add-reel";`,
       `import { runImport } from "@/lib/import/run-import";`,
       `import { askShef } from "../../lib/ask-shef/ask-shef";`,
+      `import { postRemix } from "@/lib/remix/post-remix";`,
+      `import { signRemixPhotos } from "@/lib/remix/photos";`,
+      `import { signRemixPhotos } from "../../lib/remix/photos";`,
+      `import { loadRemixFeed } from "@/lib/remix/feed";`,
+      `import { statusLabel } from "../../lib/remix/feed";`,
     ]) {
       expect({ bad, flagged: SERVER_IMPORT.test(bad) }).toEqual({ bad, flagged: true });
     }
@@ -44,6 +55,11 @@ describe("env and server-only guards", () => {
       `import type { AskResult } from "@/lib/ask-shef/types";`,
       `import { reelLabel } from "@/lib/outside/handle";`,
       `import { FREE_LIMITS } from "@/lib/limits";`,
+      `import { checkPhotoFile } from "@/lib/remix/photo";`,
+      `import { preparePhoto } from "@/lib/remix/prepare-photo";`,
+      `import { takeRemixPrefill } from "@/lib/remix/changes";`,
+      `import type { RemixFormState } from "@/lib/remix/types";`,
+      `import { statusLabel } from "@/lib/remix/status";`,
     ]) {
       expect({ ok, flagged: SERVER_IMPORT.test(ok) }).toEqual({ ok, flagged: false });
     }
@@ -62,7 +78,7 @@ describe("env and server-only guards", () => {
     expect(missing.map((f) => relative(ROOT, f))).toEqual([]);
   });
 
-  it("no client component imports the import, ask-shef or add-reel server modules or reads server secrets", () => {
+  it("no client component imports the import, ask-shef, add-reel or remix server modules or reads server secrets", () => {
     const secretEnv =
       /process\.env\.(GEMINI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|INSTAGRAM_ACCESS_TOKEN|YOUTUBE_API_KEY)/;
     const importsServer = SERVER_IMPORT;
@@ -72,6 +88,49 @@ describe("env and server-only guards", () => {
         const src = readFileSync(f, "utf8");
         if (!/^\s*["']use client["']/.test(src)) return false;
         return secretEnv.test(src) || importsServer.test(src);
+      });
+    expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
+  });
+});
+
+/* ---------- Task 3 slice C review (N8): the challenge read model is server-only ---------- */
+// Added without changing the lists above (another slice extends them): the read model joins
+// SERVER_MODULES here, and its import pattern is checked with its own regex.
+SERVER_MODULES.push(join(SRC, "lib/challenges/challenges.ts"));
+
+const CHALLENGES_SERVER_IMPORT =
+  /from\s+["'](?:@\/lib\/challenges\/challenges|\.{1,2}\/(?:.*\/)?challenges\/challenges|\.\/challenges)["']/;
+
+describe("challenge read model guards (task 3 slice C)", () => {
+  it("SERVER_MODULES includes lib/challenges/challenges.ts", () => {
+    expect(SERVER_MODULES).toContain(join(SRC, "lib/challenges/challenges.ts"));
+    expect(readFileSync(join(SRC, "lib/challenges/challenges.ts"), "utf8")).toMatch(/^\s*import\s+["']server-only["'];?\s*$/m);
+  });
+
+  it("the client import guard catches lib/challenges/challenges and allows dates and types", () => {
+    for (const bad of [
+      `import { getChallenge } from "@/lib/challenges/challenges";`,
+      `import { listChallenges } from "../../lib/challenges/challenges";`,
+      `import { getCurrentChallenge } from "./challenges";`,
+    ]) {
+      expect({ bad, flagged: CHALLENGES_SERVER_IMPORT.test(bad) }).toEqual({ bad, flagged: true });
+    }
+    for (const ok of [
+      `import { nzToday } from "@/lib/challenges/dates";`,
+      `import type { Challenge } from "@/lib/challenges/types";`,
+      `import ChallengeBanner from "@/components/challenges/ChallengeBanner";`,
+      `import { defaultChallengeWeek } from "./dates";`,
+    ]) {
+      expect({ ok, flagged: CHALLENGES_SERVER_IMPORT.test(ok) }).toEqual({ ok, flagged: false });
+    }
+  });
+
+  it("no client component imports lib/challenges/challenges", () => {
+    const offenders = walk(SRC)
+      .filter((f) => resolve(f) !== SELF)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8");
+        return /^\s*["']use client["']/.test(src) && CHALLENGES_SERVER_IMPORT.test(src);
       });
     expect(offenders.map((f) => relative(ROOT, f))).toEqual([]);
   });

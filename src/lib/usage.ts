@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type UsageKind = "ask" | "outside_reel";
+export type UsageKind = "ask" | "outside_reel" | "remix";
 
 /** The user has used up this period's allowance. */
 export class LimitReachedError extends Error {
@@ -17,6 +17,15 @@ export class LimitReachedError extends Error {
 
 type RpcError = { message: string; code?: string } | null;
 
+/** LimitReachedError when a database error is usage_limit_reached (e.g. from the remix insert trigger), else null. */
+export function limitReachedError(error: RpcError, kind: UsageKind, limit: number): LimitReachedError | null {
+  // consume_usage raises 'usage_limit_reached' (SQLSTATE SMU01) when no use is left.
+  if (error && (error.code === "SMU01" || /usage_limit_reached/.test(error.message))) {
+    return new LimitReachedError(kind, limit);
+  }
+  return null;
+}
+
 async function callUsage(
   supabase: SupabaseClient,
   fn: "consume_usage" | "usage_remaining",
@@ -28,10 +37,8 @@ async function callUsage(
     error: RpcError;
   };
   if (error) {
-    // consume_usage raises 'usage_limit_reached' (SQLSTATE SMU01) when no use is left.
-    if (error.code === "SMU01" || /usage_limit_reached/.test(error.message)) {
-      throw new LimitReachedError(kind, limit);
-    }
+    const limitError = limitReachedError(error, kind, limit);
+    if (limitError) throw limitError;
     throw new Error(`${fn} failed: ${error.message}`);
   }
   if (typeof data !== "number" || !Number.isFinite(data)) {

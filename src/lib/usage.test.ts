@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { consumeUsage, LimitReachedError, usageRemaining } from "./usage";
+import { consumeUsage, LimitReachedError, limitReachedError, usageRemaining } from "./usage";
 
 /*
  * Contract: consumeUsage(supabase, kind, limit) calls
@@ -52,5 +52,32 @@ describe("usage", () => {
     await expect(usageRemaining(client, "outside_reel", 5)).resolves.toBe(3);
     expect(rpc).toHaveBeenCalledWith("usage_remaining", { kind: "outside_reel", lim: 5 });
     expect(rpc).not.toHaveBeenCalledWith("consume_usage", expect.anything());
+  });
+
+  /* ---------- task 3 slice B: remixes ---------- */
+  it("remix limit maps to LimitReachedError", async () => {
+    // through the usage rpcs (the remix counter reads usage_remaining('remix', 5))
+    const { client, rpc } = fakeClient({ data: null, error: { message: "usage_limit_reached", code: "SMU01" } });
+    const err = await usageRemaining(client, "remix", 5).catch((e: unknown) => e);
+    expect(rpc).toHaveBeenCalledWith("usage_remaining", { kind: "remix", lim: 5 });
+    expect(err).toBeInstanceOf(LimitReachedError);
+    expect(err).toMatchObject({ kind: "remix", limit: 5, remaining: 0 });
+
+    // and from a failed remix insert (the before-insert trigger spends the remix and raises)
+    for (const error of [
+      { code: "SMU01", message: "usage_limit_reached" },
+      { code: "P0001", message: "usage_limit_reached: remix" },
+    ]) {
+      const mapped = limitReachedError(error, "remix", 5);
+      expect(mapped).toBeInstanceOf(LimitReachedError);
+      expect(mapped).toMatchObject({ kind: "remix", limit: 5, remaining: 0 });
+    }
+    for (const error of [
+      null,
+      { code: "42501", message: "new row violates row-level security policy for table \"remixes\"" },
+      { code: "23505", message: "duplicate key value violates unique constraint" },
+    ]) {
+      expect(limitReachedError(error, "remix", 5)).toBeNull();
+    }
   });
 });
