@@ -69,7 +69,7 @@ describe("usage counting (consume_usage, usage_remaining, usage_period)", () => 
     }
   });
 
-  it("usage_period gives NZ days for ask and NZ months for outside_reel", async () => {
+  it("usage_period gives NZ days for ask and remix and NZ months for outside_reel", async () => {
     // NZDT (UTC+13): NZ midnight on 18 Nov 2026 is 2026-11-17T11:00Z
     expect(await periodAt("ask", "2026-11-17T10:59:59Z")).toBe("2026-11-17");
     expect(await periodAt("ask", "2026-11-17T11:00:00Z")).toBe("2026-11-18");
@@ -83,15 +83,50 @@ describe("usage counting (consume_usage, usage_remaining, usage_period)", () => 
     // NZDT month and year end: 1 Jan 2027 starts at 2026-12-31T11:00Z
     expect(await periodAt("outside_reel", "2026-12-31T10:59:59Z")).toBe("2026-12");
     expect(await periodAt("outside_reel", "2026-12-31T11:00:00Z")).toBe("2027-01");
-    // remix is monthly too
-    expect(await periodAt("remix", "2026-12-31T11:00:00Z")).toBe("2027-01");
+    // CHANGED IN TASK 3 (slice A, on purpose): remix is now counted per NZ day, like ask
+    // (it was monthly in task 2).
+    expect(await periodAt("remix", "2026-11-17T10:59:59Z")).toBe("2026-11-17");
+    expect(await periodAt("remix", "2026-11-17T11:00:00Z")).toBe("2026-11-18");
+    expect(await periodAt("remix", "2026-06-14T12:00:00Z")).toBe("2026-06-15");
+    expect(await periodAt("remix", "2026-12-31T11:00:00Z")).toBe("2027-01-01");
     // the result does not depend on the session time zone
     await db.exec(`set timezone = 'America/Los_Angeles'`);
     try {
       expect(await periodAt("ask", "2026-11-17T11:00:00Z")).toBe("2026-11-18");
+      expect(await periodAt("remix", "2026-11-17T11:00:00Z")).toBe("2026-11-18");
     } finally {
       await db.exec(`set timezone = 'UTC'`);
     }
+  });
+
+  it("usage_cap is 5 for remix", async () => {
+    const rows = await asSuper<{ ask: number | null; remix: number | null; reel: number | null }>(
+      db,
+      `select public.usage_cap('ask') as ask, public.usage_cap('remix') as remix, public.usage_cap('outside_reel') as reel`,
+    );
+    expect(rows).toEqual([{ ask: 10, remix: 5, reel: 5 }]);
+  });
+
+  it("consume_usage caps remix at 5 whatever lim is passed", async () => {
+    const u = await createUser(db);
+    // a browser calling the rpc with a huge lim still gets 5 a NZ day
+    expect(await asUser(db, u, async (tx) => (await remaining(tx, "remix", 1000)).rows[0].remaining)).toBe(5);
+    const seen: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      seen.push(await asUser(db, u, async (tx) => (await consume(tx, "remix", 1000)).rows[0].remaining));
+    }
+    expect(seen).toEqual([4, 3, 2, 1, 0]);
+    expectLimitReached(await pgErrorOf(() => asUser(db, u, (tx) => consume(tx, "remix", 1000))));
+    expectLimitReached(await pgErrorOf(() => asUser(db, u, (tx) => consume(tx, "remix", 5))));
+    const day = await currentPeriod("remix");
+    expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(await asSuper(db, `select period, count from usage where user_id = $1 and kind = 'remix'`, [u])).toEqual([
+      { period: day, count: 5 },
+    ]);
+    expect(await asUser(db, u, async (tx) => (await remaining(tx, "remix", 1000)).rows[0].remaining)).toBe(0);
+    // a smaller lim than the cap still applies
+    const v = await createUser(db);
+    expect(await asUser(db, v, async (tx) => (await consume(tx, "remix", 2)).rows[0].remaining)).toBe(1);
   });
 
   it("consume_usage creates the row for the current period and returns remaining", async () => {

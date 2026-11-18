@@ -2,7 +2,8 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  asAdmin, asAnon, asSuper, asUser, createDb, createUser, expectBlockedWrite, makeAdmin, visibleRows,
+  asAdmin, asAnon, asSuper, asUser, banUser, createDb, createUser, expectBlockedWrite, insertRecipe, makeAdmin, pgErrorOf, seedRemix,
+  uploadObject, uuid, visibleRows, type RemixStatus,
 } from "./helpers/db";
 
 const BUCKETS = ["drafts", "recipe-images", "remix-photos"];
@@ -166,6 +167,301 @@ describe("storage RLS", () => {
     ).rejects.toThrow();
     expect(await asSuper(db, `select name, owner from storage.objects where id = $1`, [id])).toEqual([
       { name: `${alice}/mine.jpg`, owner: alice },
+    ]);
+  });
+});
+
+/*
+ * Task 3 slice A contract (remix-photos):
+ *   shef_remix_photos_public_read: anon and authenticated may select a remix-photos object when
+ *   remix_photo_is_public(name) (used by an approved remix of a live Shef recipe whose author is not
+ *   banned). Restrictive rules: no update of remix-photos objects (no overwrite or move); no delete
+ *   while a remix uses the photo; no upload by banned users or past 20 uploads in 24 hours.
+ */
+describe("remix photos (task 3)", () => {
+  let recipe: { id: string; slug: string };
+
+  beforeAll(async () => {
+    recipe = await insertRecipe(db, { status: "live" });
+  });
+
+  const photoOf = (owner: string, status: RemixStatus, recipeId = recipe.id) =>
+    seedRemix(db, { recipe_id: recipeId, user_id: owner, status }).then((r) => r.photo_path);
+  const anonSees = (name: string) =>
+    visibleRows(() => asAnon(db, (tx) => tx.query(`select name from storage.objects where bucket_id = 'remix-photos' and name = $1`, [name])));
+  const userSees = (uid: string, name: string) =>
+    asUser(db, uid, async (tx) =>
+      (await tx.query(`select name from storage.objects where bucket_id = 'remix-photos' and name = $1`, [name])).rows,
+    );
+  const isPublic = async (name: string) =>
+    (await asSuper<{ p: boolean }>(db, `select public.remix_photo_is_public($1) as p`, [name]))[0].p;
+  const exists = async (name: string) =>
+    (await asSuper(db, `select 1 from storage.objects where bucket_id = 'remix-photos' and name = $1`, [name])).length === 1;
+
+  it("anon and other users can read an approved remix photo", async () => {
+    const photo = await photoOf(alice, "approved");
+    expect(await anonSees(photo)).toEqual([{ name: photo }]);
+    expect(await userSees(bob, photo)).toEqual([{ name: photo }]);
+    expect(await userSees(alice, photo)).toEqual([{ name: photo }]);
+    expect(await isPublic(photo)).toBe(true);
+    // reading does not let anyone else write it
+    await expectBlockedWrite(() =>
+      asUser(db, bob, (tx) => tx.query(`delete from storage.objects where bucket_id = 'remix-photos' and name = $1`, [photo])),
+    );
+    expect(await exists(photo)).toBe(true);
+    const [fn] = await asSuper<{ prosecdef: boolean; proconfig: string[] | null; pub: boolean }>(
+      db,
+      `select p.prosecdef, p.proconfig,
+              exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                      where a.grantee = 0 and a.privilege_type = 'EXECUTE') as pub
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remix_photo_is_public'`,
+    );
+    expect(fn).toMatchObject({ prosecdef: true, pub: false });
+    expect(fn.proconfig ?? []).toContainEqual(expect.stringMatching(/^search_path=(""|)$/));
+  });
+
+  it("pending, hidden, banned-author and unused remix photos stay private", async () => {
+    const dave = await createUser(db);
+    const pending = await photoOf(alice, "pending");
+    const hidden = await photoOf(alice, "hidden");
+    const byBanned = await photoOf(dave, "approved");
+    await banUser(db, dave);
+    const carol = await createUser(db);
+    const unused = await uploadObject(db, carol);
+    const gone = await insertRecipe(db, { status: "live" });
+    const onGone = await photoOf(alice, "approved", gone.id);
+    await asSuper(db, `update recipes set status = 'draft' where id = $1`, [gone.id]);
+    for (const name of [pending, hidden, byBanned, unused, onGone]) {
+      expect({ name, anon: await anonSees(name) }).toEqual({ name, anon: [] });
+      expect({ name, bob: await userSees(bob, name) }).toEqual({ name, bob: [] });
+      expect({ name, pub: await isPublic(name) }).toEqual({ name, pub: false });
+    }
+    // the owner still sees their own photos, the admin sees all (moderation)
+    for (const name of [pending, hidden]) expect(await userSees(alice, name)).toHaveLength(1);
+    expect(await userSees(carol, unused)).toHaveLength(1);
+    for (const name of [pending, hidden, byBanned, unused]) expect(await userSees(admin, name)).toHaveLength(1);
+    // the same name in another bucket is not made public by an approved remix
+    const approved = await photoOf(alice, "approved");
+    await asSuper(db, `insert into storage.objects (bucket_id, name) values ('drafts', $1)`, [approved]);
+    const inDrafts = await visibleRows(() =>
+      asAnon(db, (tx) => tx.query(`select id from storage.objects where bucket_id = 'drafts' and name = $1`, [approved])),
+    );
+    expect(inDrafts).toHaveLength(0);
+  });
+
+  it("anon listing of remix-photos returns approved photos only", async () => {
+    const fresh = await createDb();
+    try {
+      const u = await createUser(fresh);
+      const v = await createUser(fresh);
+      const r = await insertRecipe(fresh, { status: "live" });
+      const a1 = (await seedRemix(fresh, { recipe_id: r.id, user_id: u, status: "approved" })).photo_path;
+      const a2 = (await seedRemix(fresh, { recipe_id: r.id, user_id: v, status: "approved" })).photo_path;
+      await seedRemix(fresh, { recipe_id: r.id, user_id: u, status: "pending" });
+      await seedRemix(fresh, { recipe_id: r.id, user_id: v, status: "hidden" });
+      await uploadObject(fresh, u);
+      const listed = await visibleRows(() =>
+        asAnon(fresh, (tx) => tx.query<{ name: string }>(`select name from storage.objects where bucket_id = 'remix-photos'`)),
+      );
+      expect(listed.map((x) => x.name).sort()).toEqual([a1, a2].sort());
+      const all = await visibleRows(() => asAnon(fresh, (tx) => tx.query<{ name: string }>(`select name from storage.objects`)));
+      expect(all.map((x) => x.name).sort()).toEqual([a1, a2].sort());
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it("owner cannot overwrite or move a remix photo", async () => {
+    const owner = await createUser(db);
+    const approved = await photoOf(owner, "approved");
+    const unused = await uploadObject(db, owner);
+    for (const name of [approved, unused]) {
+      const changes = [
+        `name = '${owner}/${uuid()}.jpg'`, // move within own folder
+        `owner = '${owner}'`, // a no-op-looking overwrite (upsert)
+        `created_at = now() - interval '2 days'`, // would dodge the 24 hour upload count
+      ];
+      for (const set of changes) {
+        await expectBlockedWrite(() =>
+          asUser(db, owner, (tx) => tx.query(`update storage.objects set ${set} where bucket_id = 'remix-photos' and name = $1`, [name])),
+        );
+      }
+      expect(await exists(name)).toBe(true);
+    }
+    // nothing moved: both objects keep their names and nothing new appeared in the folder
+    const names = await asSuper<{ name: string }>(
+      db, `select name from storage.objects where bucket_id = 'remix-photos' and name = any($1) order by name`, [[approved, unused]],
+    );
+    expect(names.map((x) => x.name)).toEqual([approved, unused].sort());
+    // the admin's recipe-images writes are untouched by the new rule
+    const [img] = await asSuper<{ id: string }>(db, `insert into storage.objects (bucket_id, name) values ('recipe-images', $1) returning id`, [
+      `covers/${uuid()}.jpg`,
+    ]);
+    const upd = await asAdmin(db, admin, (tx) => tx.query(`update storage.objects set name = $2 where id = $1`, [img.id, `covers/${uuid()}.jpg`]));
+    expect(upd.affectedRows).toBe(1);
+  });
+
+  it("a photo used by a remix cannot be deleted until the remix is deleted", async () => {
+    const u = await createUser(db);
+    const { id, photo_path } = await seedRemix(db, { recipe_id: recipe.id, user_id: u, status: "pending" });
+    await expectBlockedWrite(() =>
+      asUser(db, u, (tx) => tx.query(`delete from storage.objects where bucket_id = 'remix-photos' and name = $1`, [photo_path])),
+    );
+    expect(await exists(photo_path)).toBe(true);
+    const inUse = await asSuper<{ used: boolean }>(db, `select public.remix_photo_in_use($1) as used`, [photo_path]);
+    expect(inUse).toEqual([{ used: true }]);
+    await asUser(db, u, (tx) => tx.query(`delete from remixes where id = $1`, [id]));
+    const del = await asUser(db, u, (tx) =>
+      tx.query(`delete from storage.objects where bucket_id = 'remix-photos' and name = $1`, [photo_path]),
+    );
+    expect(del.affectedRows).toBe(1);
+    expect(await exists(photo_path)).toBe(false);
+    // an unused upload (closed tab) can be cleaned up at once
+    const unused = await uploadObject(db, u);
+    const del2 = await asUser(db, u, (tx) => tx.query(`delete from storage.objects where bucket_id = 'remix-photos' and name = $1`, [unused]));
+    expect(del2.affectedRows).toBe(1);
+  });
+
+  it("banned user cannot upload remix photos", async () => {
+    const u = await createUser(db);
+    await uploadObject(db, u); // fine before the ban
+    await banUser(db, u);
+    await expect(uploadObject(db, u)).rejects.toThrow();
+    const [row] = await asSuper<{ n: number }>(
+      db, `select count(*)::int as n from storage.objects where bucket_id = 'remix-photos' and owner = $1`, [u],
+    );
+    expect(row.n).toBe(1);
+    // other users still can
+    await expect(uploadObject(db, bob)).resolves.toMatch(new RegExp(`^${bob}/`));
+  });
+
+  it("the 21st upload within 24 hours is refused", async () => {
+    const u = await createUser(db);
+    const other = await createUser(db);
+    // older uploads, used by remixes, do not count
+    for (let i = 0; i < 5; i++) {
+      const name = `${u}/${uuid()}.jpg`;
+      await asSuper(
+        db,
+        `insert into storage.objects (bucket_id, name, owner, created_at) values ('remix-photos', $1, $2, now() - interval '25 hours')`,
+        [name, u],
+      );
+      await seedRemix(db, { recipe_id: recipe.id, user_id: u, photo_path: name, withPhoto: false });
+    }
+    // 18 recent uploads that remixes use (so the unused-photo limit is not what stops the 21st)
+    for (let i = 0; i < 18; i++) await seedRemix(db, { recipe_id: recipe.id, user_id: u });
+    await uploadObject(db, u);
+    await uploadObject(db, u);
+    await expect(uploadObject(db, u)).rejects.toThrow();
+    const [row] = await asSuper<{ n: number }>(
+      db,
+      `select count(*)::int as n from storage.objects where bucket_id = 'remix-photos' and owner = $1 and created_at > now() - interval '24 hours'`,
+      [u],
+    );
+    expect(row.n).toBe(20);
+    // the count is per user
+    await expect(uploadObject(db, other)).resolves.toMatch(new RegExp(`^${other}/`));
+    // other buckets are untouched by the rule
+    const res = await asAdmin(db, admin, (tx) => tx.query(upload("drafts", `imports/${uuid()}.jpg`)));
+    expect(res.affectedRows).toBe(1);
+  });
+
+  it("a sixth unused upload is refused whatever its age, and photos used by remixes do not count", async () => {
+    const u = await createUser(db);
+    // photos used by remixes, recent and old, do not count toward the unused limit
+    for (let i = 0; i < 3; i++) await seedRemix(db, { recipe_id: recipe.id, user_id: u, status: "approved" });
+    // unused uploads from days ago still count
+    for (let i = 0; i < 3; i++) {
+      await asSuper(
+        db,
+        `insert into storage.objects (bucket_id, name, owner, created_at) values ('remix-photos', $1, $2, now() - interval '3 days')`,
+        [`${u}/${uuid()}.jpg`, u],
+      );
+    }
+    const fourth = await uploadObject(db, u);
+    await uploadObject(db, u); // fifth unused
+    const err = await pgErrorOf(() => uploadObject(db, u));
+    expect(err.code).toBe("42501");
+    const [row] = await asSuper<{ n: number }>(
+      db, `select count(*)::int as n from storage.objects where bucket_id = 'remix-photos' and owner = $1`, [u],
+    );
+    expect(row.n).toBe(8);
+    // posting a remix with one of them frees a slot
+    await asUser(db, u, (tx) =>
+      tx.query(`insert into remixes (recipe_id, photo_path, changes) values ($1, $2, 'used it')`, [recipe.id, fourth]),
+    );
+    const freed = await uploadObject(db, u);
+    await expect(uploadObject(db, u)).rejects.toThrow();
+    // deleting an unused one frees a slot too
+    await asUser(db, u, (tx) => tx.query(`delete from storage.objects where bucket_id = 'remix-photos' and name = $1`, [freed]));
+    await expect(uploadObject(db, u)).resolves.toMatch(new RegExp(`^${u}/`));
+    // the limit is per user: another user's unused photos do not count
+    const v = await createUser(db);
+    for (let i = 0; i < 5; i++) await uploadObject(db, v);
+    await expect(uploadObject(db, v)).rejects.toThrow();
+    await expect(uploadObject(db, bob)).resolves.toMatch(new RegExp(`^${bob}/`));
+  });
+
+  it("remix_photo_in_use does not reveal whether another user's photo is in use", async () => {
+    const owner = await createUser(db);
+    const snoop = await createUser(db);
+    const used = (await seedRemix(db, { recipe_id: recipe.id, user_id: owner, status: "pending" })).photo_path;
+    const unused = await uploadObject(db, owner);
+    const inUse = (uid: string, name: string) =>
+      asUser(db, uid, async (tx) => (await tx.query<{ used: boolean }>(`select public.remix_photo_in_use($1) as used`, [name])).rows[0].used);
+    // the owner and the admin get the real answer
+    expect(await inUse(owner, used)).toBe(true);
+    expect(await inUse(owner, unused)).toBe(false);
+    expect(await inUse(admin, used)).toBe(true);
+    // another user learns nothing: false (or an error) for both a used and an unused path
+    for (const name of [used, unused, `${owner}/${uuid()}.jpg`]) {
+      let answer: boolean | "error";
+      try {
+        answer = await inUse(snoop, name);
+      } catch {
+        answer = "error";
+      }
+      expect({ name, answer: answer === "error" ? false : answer }).toEqual({ name, answer: false });
+    }
+    // anon cannot ask at all
+    const err = await pgErrorOf(() => asAnon(db, (tx) => tx.query(`select public.remix_photo_in_use($1)`, [used])));
+    expect(err.code).toBe("42501");
+  });
+
+  it("owner cannot upsert over an approved remix photo", async () => {
+    const owner = await createUser(db);
+    const name = `${owner}/${uuid()}.jpg`;
+    await asSuper(
+      db,
+      `insert into storage.objects (bucket_id, name, owner, metadata) values ('remix-photos', $1, $2, '{"eTag":"original","size":1000}')`,
+      [name, owner],
+    );
+    await seedRemix(db, { recipe_id: recipe.id, user_id: owner, status: "approved", photo_path: name, withPhoto: false });
+    // Storage's upsert: insert ... on conflict (bucket_id, name) do update
+    const err = await pgErrorOf(() =>
+      asUser(db, owner, (tx) =>
+        tx.query(
+          `insert into storage.objects (bucket_id, name, owner, metadata) values ('remix-photos', $1, $2, '{"eTag":"swapped","size":66}')
+           on conflict (bucket_id, name) do update set metadata = excluded.metadata, owner = excluded.owner, created_at = now()`,
+          [name, owner],
+        ),
+      ),
+    );
+    expect(err.code).toBe("42501");
+    // someone else cannot take it over that way either
+    const err2 = await pgErrorOf(() =>
+      asUser(db, bob, (tx) =>
+        tx.query(
+          `insert into storage.objects (bucket_id, name, owner, metadata) values ('remix-photos', $1, $2, '{"eTag":"swapped"}')
+           on conflict (bucket_id, name) do update set metadata = excluded.metadata, owner = excluded.owner`,
+          [name, bob],
+        ),
+      ),
+    );
+    expect(err2.code).toBe("42501");
+    expect(await asSuper(db, `select owner, metadata from storage.objects where bucket_id = 'remix-photos' and name = $1`, [name])).toEqual([
+      { owner, metadata: { eTag: "original", size: 1000 } },
     ]);
   });
 });

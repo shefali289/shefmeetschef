@@ -34,8 +34,13 @@ create table storage.objects (
   bucket_id text references storage.buckets(id),
   name text not null,
   owner uuid,
+  -- Supabase keeps the file's size, eTag and mime type here; tests use it as a stand-in for the bytes.
+  metadata jsonb,
   created_at timestamptz default now()
 );
+
+-- Same as Supabase: one object per name in a bucket (uploads with upsert use on conflict on these).
+create unique index bucketid_objname on storage.objects (bucket_id, name);
 
 alter table storage.objects enable row level security;
 
