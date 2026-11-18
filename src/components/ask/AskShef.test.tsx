@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AskResult, ShefVersion } from "@/lib/ask-shef/types";
+import { takeRemixPrefill } from "@/lib/remix/changes";
 import AskShef, { type AskShefProps } from "./AskShef";
 
 vi.mock("next/navigation", () => ({
@@ -223,4 +224,70 @@ describe("AskShef", () => {
     // the form stays so they can try again
     expect(screen.getByRole("textbox", { name: /question|ask shef/i })).toBeInTheDocument();
   });
+
+  /* ---------- task 3 slice B: post Shef's version as a remix ---------- */
+  it("Shef's version offers Post this as my remix when signed in, stores the prefill and links to the remix page", async () => {
+    sessionStorage.clear();
+    // CHANGED after the slice B review (NIT7): the link is opt-in, so this recipe passes remixable
+    const { action, user } = setup({ remixable: true });
+    action
+      .mockResolvedValueOnce(ok({ question: "Plain?", answer: "Just as it is.", shefVersion: null, remaining: 6 }))
+      .mockResolvedValueOnce(
+        ok({
+          question: "Make it vegan",
+          answer: "Here's a vegan one.",
+          shefVersion: {
+            ingredients: [{ qty: 1, unit: "cup", item: "oat milk" }],
+            steps: [{ text: "Simmer gently." }],
+            diet_tags: ["vegan"],
+          },
+          remaining: 5,
+        }),
+      );
+    // an answer that does not change the recipe offers nothing to post
+    await ask(user, "Plain?");
+    await screen.findByText("Just as it is.");
+    expect(screen.queryByRole("link", { name: /post this as my remix/i })).toBeNull();
+
+    await ask(user, "Make it vegan");
+    await screen.findByText("Here's a vegan one.");
+    const link = await screen.findByRole("link", { name: /post this as my remix/i });
+    expect(link).toHaveAttribute("href", "/recipes/masala-chai/remix");
+    expect(link.className).toMatch(/min-h-11|min-h-\[44px\]|h-11|h-12/);
+    // nothing is stored until they choose to post it
+    expect(sessionStorage.length).toBe(0);
+
+    link.addEventListener("click", (e) => e.preventDefault()); // jsdom cannot navigate
+    await user.click(link);
+    const prefill = takeRemixPrefill("masala-chai");
+    expect(prefill).toContain("oat milk");
+    expect(prefill).toContain("Simmer gently.");
+    expect(prefill!.length).toBeLessThanOrEqual(2000);
+    sessionStorage.clear();
+  });
+
+  it("signed-out Ask Shef never offers Post this as my remix", () => {
+    setup({ signedIn: false });
+    expect(screen.queryByRole("link", { name: /post this as my remix/i })).toBeNull();
+  });
+
+  /* ---------- slice B review finding NIT7 ---------- */
+  it("NIT7: without the remixable prop Shef's version offers no remix link (the default is off)", async () => {
+    const { action, user } = setup();
+    action.mockResolvedValueOnce(
+      ok({
+        answer: "Here's a vegan one.",
+        shefVersion: {
+          ingredients: [{ qty: 1, unit: "cup", item: "oat milk" }],
+          steps: [{ text: "Simmer gently." }],
+          diet_tags: ["vegan"],
+        },
+      }),
+    );
+    await ask(user, "Make it vegan");
+    await screen.findByRole("button", { name: /shef.s version/i });
+    expect(screen.queryByRole("link", { name: /post this as my remix/i })).toBeNull();
+    expect(screen.queryAllByRole("link").filter((a) => /\/remix(\?|#|$)/.test(a.getAttribute("href") ?? ""))).toEqual([]);
+  });
 });
+

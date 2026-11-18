@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import AskShef from "@/components/ask/AskShef";
+import CookbookAnnouncer from "@/components/cookbook/CookbookAnnouncer";
 import SaveButton from "@/components/cookbook/SaveButton";
 import AllergenBox from "@/components/recipe/AllergenBox";
 import DietTags from "@/components/recipe/DietTags";
@@ -12,10 +14,14 @@ import ServingsScaler from "@/components/recipe/ServingsScaler";
 import RecipePlaceholder from "@/components/recipe/RecipePlaceholder";
 import StepList from "@/components/recipe/StepList";
 import Reveal from "@/components/motion/Reveal";
+import RemixList from "@/components/remix/RemixList";
+import RemixThisButton from "@/components/remix/RemixThisButton";
 import { recipeJsonLd, serializeJsonLd } from "@/lib/jsonld";
 import { getViewer } from "@/lib/auth/session";
 import { FREE_LIMITS } from "@/lib/limits";
 import { getRecipeForViewer, listRecipes } from "@/lib/recipes";
+import { loadOwnRemixes, loadRemixFeed, markLiked } from "@/lib/remix/feed";
+import type { OwnRemixCard, RemixCardData } from "@/lib/remix/types";
 import { isDietTag } from "@/lib/taxonomy";
 import { usageRemaining } from "@/lib/usage";
 import { askShefAction } from "./actions";
@@ -28,6 +34,9 @@ type Props = { params: Promise<{ slug: string }> };
 // up, every page renders per request: it reads the visitor's session cookies, so nothing
 // per-user (outside recipes, the Ask Shef counter) is ever cached and shared.
 export const revalidate = 3600;
+
+/** Newest approved remixes shown on the recipe page; the rest are on /remixes. */
+const RECIPE_PAGE_REMIXES = 6;
 
 /** Only public Shef recipes are pre-rendered; outside recipes never are. */
 export async function generateStaticParams() {
@@ -106,6 +115,23 @@ export default async function RecipePage({ params }: Props) {
     saved = Boolean(data);
   }
 
+  // Remixes are for Shef recipes only. Approved ones for everyone; the viewer's own in any status.
+  let remixes: RemixCardData[] = [];
+  let ownRemixes: OwnRemixCard[] = [];
+  if (!outside && viewer.supabase) {
+    const supabase = viewer.supabase;
+    const user = viewer.user;
+    const [feed, own] = await Promise.all([
+      loadRemixFeed(supabase, { recipeId: recipe.id, sort: "newest", limit: RECIPE_PAGE_REMIXES }),
+      user ? loadOwnRemixes(supabase, user.id, recipe.id, recipe) : Promise.resolve([]),
+    ]);
+    // The owner's own remixes are shown once, in "Your remixes" with their status.
+    const ownIds = new Set(own.map((r) => r.id));
+    remixes = feed.cards.filter((c) => !ownIds.has(c.id));
+    if (user) remixes = await markLiked(supabase, user.id, remixes);
+    ownRemixes = own;
+  }
+
   return (
     <main id="main" className="mx-auto max-w-3xl px-4 pb-16">
       {!outside && (
@@ -182,8 +208,62 @@ export default async function RecipePage({ params }: Props) {
             limit={FREE_LIMITS.ask}
             original={{ ingredients: recipe.ingredients, steps: recipe.steps, diet_tags: recipe.diet_tags.filter(isDietTag) }}
             action={askShefAction}
+            remixable={!outside && viewer.configured}
           />
         </Reveal>
+        {!outside && (
+          <Reveal as="section" aria-labelledby="remixes-heading" className="space-y-5">
+            <div>
+              <p className="font-hand text-2xl text-herb">made it your way?</p>
+              {/* A stable focus target after a remix card is deleted. */}
+              <h2 id="remixes-heading" tabIndex={-1} className="text-3xl font-extrabold focus:outline-none">
+                <span className="brush">Remixes</span>
+              </h2>
+              <p className="mt-2 text-cocoa">
+                Share a photo of your take on Shef&rsquo;s {recipe.title} and what you changed.
+              </p>
+            </div>
+            {/* The one persistent status region for the section (e.g. "Remix deleted"). */}
+            <CookbookAnnouncer />
+            <RemixThisButton slug={recipe.slug} signedIn={viewer.user !== null} configured={viewer.configured} />
+            {viewer.configured ? (
+              <>
+                {ownRemixes.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-xl font-extrabold">Your remixes</h3>
+                    <RemixList
+                      remixes={ownRemixes}
+                      own
+                      signedIn
+                      returnTo={`/recipes/${recipe.slug}`}
+                      label="Your remixes"
+                      showRecipe={false}
+                    />
+                  </div>
+                )}
+                {remixes.length > 0 ? (
+                  <RemixList
+                    remixes={remixes}
+                    signedIn={viewer.user !== null}
+                    returnTo={`/recipes/${recipe.slug}`}
+                    label={`Remixes of ${recipe.title}`}
+                    showRecipe={false}
+                  />
+                ) : (
+                  <p className="rounded-2xl bg-white p-4 ring-1 ring-cocoa/10">No remixes yet. Be the first!</p>
+                )}
+                <p>
+                  <Link
+                    href={`/remixes?recipe=${recipe.slug}`}
+                    className="press inline-flex min-h-11 items-center rounded-full font-bold text-copper-ink underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-copper"
+                  >
+                    See all remixes of {recipe.title}
+                  </Link>
+                </p>
+              </>
+            ) : null}
+          </Reveal>
+        )}
         <Reveal>
           <RecipeActions reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />
         </Reveal>

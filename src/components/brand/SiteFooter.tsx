@@ -19,9 +19,12 @@ export default function SiteFooter() {
           <p className="mt-2 max-w-xs text-cream/90">
             Indian, fusion and everyday home cooking from a sunny kitchen in New Zealand.
           </p>
-          <nav aria-label="Footer" className="mt-3">
+          <nav aria-label="Footer" className="mt-3 flex flex-wrap gap-x-6">
             <Link href="/recipes" className={link}>
               All recipes
+            </Link>
+            <Link href="/remixes" className={link}>
+              Remixes
             </Link>
           </nav>
         </div>

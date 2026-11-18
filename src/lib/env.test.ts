@@ -23,11 +23,17 @@ const SERVER_MODULES = [
   // Ask Shef calls Gemini with GEMINI_API_KEY; run-ask orchestrates it with usage counting
   join(SRC, "lib/ask-shef/ask-shef.ts"),
   join(SRC, "lib/ask-shef/run-ask.ts"),
+  // Task 3 slice B: posting remixes (Storage downloads with the session) and signing remix photos
+  join(SRC, "lib/remix/post-remix.ts"),
+  join(SRC, "lib/remix/photos.ts"),
+  // Slice B review NIT8: the feed signs photos through photos.ts, so it is server-only too
+  join(SRC, "lib/remix/feed.ts"),
 ];
 
 // Server-only modules a client component must never import (types.ts and handle.ts are shared).
+// Task 3 slice B adds remix/post-remix and remix/photos (remix/photo, changes, types are shared).
 const SERVER_IMPORT =
-  /from\s+["'](?:@\/lib\/import\/|\.{1,2}\/(?:.*\/)?import\/|@\/lib\/ask-shef\/(?:ask-shef|run-ask)["']|@\/lib\/outside\/add-reel["']|\.{1,2}\/(?:.*\/)?(?:ask-shef\/(?:ask-shef|run-ask)|outside\/add-reel)["'])/;
+  /from\s+["'](?:@\/lib\/import\/|\.{1,2}\/(?:.*\/)?import\/|@\/lib\/ask-shef\/(?:ask-shef|run-ask)["']|@\/lib\/outside\/add-reel["']|@\/lib\/remix\/(?:post-remix|photos|feed)["']|\.{1,2}\/(?:.*\/)?(?:ask-shef\/(?:ask-shef|run-ask)|outside\/add-reel|remix\/(?:post-remix|photos|feed))["']|\.\/(?:post-remix|photos|feed)["'])/;
 
 describe("env and server-only guards", () => {
   it("the client import guard catches the server modules and allows shared ones", () => {
@@ -37,6 +43,11 @@ describe("env and server-only guards", () => {
       `import { addReel } from "@/lib/outside/add-reel";`,
       `import { runImport } from "@/lib/import/run-import";`,
       `import { askShef } from "../../lib/ask-shef/ask-shef";`,
+      `import { postRemix } from "@/lib/remix/post-remix";`,
+      `import { signRemixPhotos } from "@/lib/remix/photos";`,
+      `import { signRemixPhotos } from "../../lib/remix/photos";`,
+      `import { loadRemixFeed } from "@/lib/remix/feed";`,
+      `import { statusLabel } from "../../lib/remix/feed";`,
     ]) {
       expect({ bad, flagged: SERVER_IMPORT.test(bad) }).toEqual({ bad, flagged: true });
     }
@@ -44,6 +55,11 @@ describe("env and server-only guards", () => {
       `import type { AskResult } from "@/lib/ask-shef/types";`,
       `import { reelLabel } from "@/lib/outside/handle";`,
       `import { FREE_LIMITS } from "@/lib/limits";`,
+      `import { checkPhotoFile } from "@/lib/remix/photo";`,
+      `import { preparePhoto } from "@/lib/remix/prepare-photo";`,
+      `import { takeRemixPrefill } from "@/lib/remix/changes";`,
+      `import type { RemixFormState } from "@/lib/remix/types";`,
+      `import { statusLabel } from "@/lib/remix/status";`,
     ]) {
       expect({ ok, flagged: SERVER_IMPORT.test(ok) }).toEqual({ ok, flagged: false });
     }
@@ -62,7 +78,7 @@ describe("env and server-only guards", () => {
     expect(missing.map((f) => relative(ROOT, f))).toEqual([]);
   });
 
-  it("no client component imports the import, ask-shef or add-reel server modules or reads server secrets", () => {
+  it("no client component imports the import, ask-shef, add-reel or remix server modules or reads server secrets", () => {
     const secretEnv =
       /process\.env\.(GEMINI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|INSTAGRAM_ACCESS_TOKEN|YOUTUBE_API_KEY)/;
     const importsServer = SERVER_IMPORT;
