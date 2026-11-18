@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import SubmitButton from "@/components/cookbook/SubmitButton";
 import { errorText, primaryButton } from "@/components/cookbook/styles";
@@ -18,6 +19,8 @@ export interface RemixFormProps {
   remaining: number;
   limit?: number;
   action: (prev: RemixFormState, formData: FormData) => Promise<RemixFormState>;
+  /** The open challenge when this recipe is its base recipe: the remix is entered automatically. */
+  challenge?: { id: string; title: string } | null;
 }
 
 const UPLOAD_FAILED = "We couldn't upload your photo. Please try again.";
@@ -48,7 +51,14 @@ function problem(result: RemixFormState): string | null {
  * user's own remix-photos folder with their session (never overwriting); the server action gets
  * only its path and checks the file again.
  */
-export default function RemixForm({ slug, userId, remaining, limit = FREE_LIMITS.remix, action }: RemixFormProps) {
+export default function RemixForm({
+  slug,
+  userId,
+  remaining,
+  limit = FREE_LIMITS.remix,
+  action,
+  challenge = null,
+}: RemixFormProps) {
   const photoId = useId();
   const photoHintId = useId();
   const changesId = useId();
@@ -147,6 +157,21 @@ export default function RemixForm({ slug, userId, remaining, limit = FREE_LIMITS
       {limitMessage ? null : (
         // noValidate: the checks below give friendlier messages, announced in one place.
         <form onSubmit={submit} noValidate className="space-y-5" aria-busy={pending}>
+          {challenge && (
+            <div className="rounded-2xl bg-peach-light p-4 ring-1 ring-cocoa/10">
+              <p className="font-semibold text-cocoa">
+                This remix enters{" "}
+                <Link
+                  href={`/challenges/${challenge.id}`}
+                  className="font-bold text-copper-ink underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-copper"
+                >
+                  {challenge.title}
+                </Link>
+                , this week&rsquo;s remix challenge.
+              </p>
+              <p className="mt-1 font-hand text-xl text-cocoa-soft">Entries may be featured in Shef&rsquo;s reel.</p>
+            </div>
+          )}
           <div className="space-y-2">
             <label htmlFor={photoId} className="block font-bold">
               Photo of your remix

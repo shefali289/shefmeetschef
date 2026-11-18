@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import AskShef from "@/components/ask/AskShef";
+import ChallengeBanner from "@/components/challenges/ChallengeBanner";
 import CookbookAnnouncer from "@/components/cookbook/CookbookAnnouncer";
 import SaveButton from "@/components/cookbook/SaveButton";
 import AllergenBox from "@/components/recipe/AllergenBox";
@@ -18,6 +19,8 @@ import RemixList from "@/components/remix/RemixList";
 import RemixThisButton from "@/components/remix/RemixThisButton";
 import { recipeJsonLd, serializeJsonLd } from "@/lib/jsonld";
 import { getViewer } from "@/lib/auth/session";
+import { getCurrentChallenge } from "@/lib/challenges/challenges";
+import { nzToday } from "@/lib/challenges/dates";
 import { FREE_LIMITS } from "@/lib/limits";
 import { getRecipeForViewer, listRecipes } from "@/lib/recipes";
 import { loadOwnRemixes, loadRemixFeed, markLiked } from "@/lib/remix/feed";
@@ -132,6 +135,11 @@ export default async function RecipePage({ params }: Props) {
     ownRemixes = own;
   }
 
+  // The open challenge, only on its own base recipe. A failed lookup just hides the banner.
+  const today = nzToday();
+  const current = outside ? null : await getCurrentChallenge(viewer.supabase, today).catch(() => null);
+  const challenge = current && current.baseRecipeId === recipe.id ? current : null;
+
   return (
     <main id="main" className="mx-auto max-w-3xl px-4 pb-16">
       {!outside && (
@@ -178,6 +186,7 @@ export default async function RecipePage({ params }: Props) {
       </header>
 
       <div className="space-y-10">
+        {challenge && <ChallengeBanner challenge={challenge} today={today} onBaseRecipe />}
         {(recipe.reel_url || recipe.youtube_url) && (
           <Reveal>
             <MediaEmbeds title={recipe.title} reelUrl={recipe.reel_url} youtubeUrl={recipe.youtube_url} />

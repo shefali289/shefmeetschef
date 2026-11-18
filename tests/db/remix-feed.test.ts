@@ -2,7 +2,7 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
-  asAdmin, asAnon, asSuper, asUser, banUser, createDb, createUser, insertRecipe, makeAdmin, seedRemix, visibleRows,
+  asAdmin, asAnon, asSuper, asUser, banUser, createDb, createUser, insertRecipe, makeAdmin, seedRemix, uuid, visibleRows,
   type RemixStatus, type Tx,
 } from "./helpers/db";
 
@@ -243,5 +243,104 @@ describe("remix_feed", () => {
       (await tx.query<{ id: string }>(`select id from remixes where recipe_id = $1`, [r.id])).rows,
     );
     expect(rows.map((x) => x.id).sort()).toEqual([...ids].sort());
+  });
+});
+
+/* ---------- slice C review (T1): remix_feed(p_remix_id) ---------- */
+
+describe("remix_feed by remix id (task 3 slice C)", () => {
+  const byId = (remixId: string, challengeId: string | null = null) =>
+    asAnon(db, async (tx) =>
+      (
+        await tx.query<FeedRow>(`select * from public.remix_feed(p_remix_id => $1, p_challenge_id => $2)`, [remixId, challengeId])
+      ).rows,
+    );
+
+  it("p_remix_id returns only that remix, and nothing when it is not public or of another challenge", async () => {
+    const r = await insertRecipe(db, { status: "live" });
+    const [c1] = await asSuper<{ id: string }>(
+      db,
+      `insert into challenges (base_recipe_id, title, starts_on, ends_on) values ($1, 'One', '2025-03-03', '2025-03-09') returning id`,
+      [r.id],
+    );
+    const [c2] = await asSuper<{ id: string }>(
+      db,
+      `insert into challenges (base_recipe_id, title, starts_on, ends_on) values ($1, 'Two', '2025-04-07', '2025-04-13') returning id`,
+      [r.id],
+    );
+    const target = await remix(r.id, alice, "approved", { challenge_id: c1.id });
+    const sibling = await remix(r.id, bob, "approved", { challenge_id: c1.id });
+
+    const rows = await byId(target);
+    expect(rows.map((x) => x.id)).toEqual([target]);
+    expect(rows.map((x) => x.id)).not.toContain(sibling);
+    expect((await byId(target, c1.id)).map((x) => x.id)).toEqual([target]);
+    // of another challenge
+    expect(await byId(target, c2.id)).toEqual([]);
+
+    // pending and hidden
+    for (const status of ["pending", "hidden"] as const) {
+      const id = await remix(r.id, alice, status, { challenge_id: c1.id });
+      expect({ status, rows: await byId(id) }).toEqual({ status, rows: [] });
+      expect({ status, rows: await byId(id, c1.id) }).toEqual({ status, rows: [] });
+    }
+
+    // by a banned author
+    const villain = await createUser(db, { meta: { full_name: "Vic" } });
+    const banned = await remix(r.id, villain, "approved", { challenge_id: c1.id });
+    expect((await byId(banned)).map((x) => x.id)).toEqual([banned]);
+    await banUser(db, villain);
+    expect(await byId(banned)).toEqual([]);
+
+    // of a recipe that is no longer live
+    const gone = await insertRecipe(db, { status: "live" });
+    const onGone = await remix(gone.id, alice);
+    expect((await byId(onGone)).map((x) => x.id)).toEqual([onGone]);
+    await asSuper(db, `update recipes set status = 'draft' where id = $1`, [gone.id]);
+    expect(await byId(onGone)).toEqual([]);
+
+    // an unknown id
+    expect(await byId(uuid())).toEqual([]);
+  });
+
+  it("only the 6-argument remix_feed exists and the old named arguments still work", async () => {
+    const fns = await asSuper<{ args: string; nargs: number }>(
+      db,
+      `select pg_get_function_identity_arguments(p.oid) as args, p.pronargs as nargs
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'remix_feed'`,
+    );
+    expect(fns).toHaveLength(1);
+    expect(fns[0].nargs).toBe(6);
+    expect(fns[0].args).toMatch(/p_remix_id uuid/);
+
+    const r = await insertRecipe(db, { status: "live" });
+    const id = await remix(r.id, alice);
+    // the slice A call shape (five named arguments, no p_remix_id) for anon and users
+    expect((await anonFeed({ recipe: r.id })).map((x) => x.id)).toEqual([id]);
+    expect((await userFeed(bob, { recipe: r.id })).map((x) => x.id)).toEqual([id]);
+    // and with no arguments at all
+    const all = await asAnon(db, async (tx) => (await tx.query<FeedRow>(`select * from public.remix_feed()`)).rows);
+    expect(all.map((x) => x.id)).toContain(id);
+  });
+
+  it("remix_feed still returns no user_id or email columns", async () => {
+    const r = await insertRecipe(db, { status: "live" });
+    const id = await remix(r.id, alice);
+    const res = await asAnon(db, (tx) => tx.query(`select * from public.remix_feed(p_remix_id => $1)`, [id]));
+    const cols = res.fields.map((f) => f.name).sort();
+    expect(cols).toEqual(FEED_COLUMNS);
+    expect(cols).not.toContain("user_id");
+    expect(cols.some((c) => /email/i.test(c))).toBe(false);
+    // photo_path is <uid>/<uuid>.jpg by design (accepted in the plan); no other column carries the id
+    const withoutPath = res.rows.map((row) => ({ ...(row as Record<string, unknown>), photo_path: undefined }));
+    expect(JSON.stringify(withoutPath)).not.toContain(alice);
+    expect(JSON.stringify(res.rows)).not.toContain("alice@example.com");
+    const [{ result }] = await asSuper<{ result: string }>(
+      db,
+      `select pg_get_function_result(p.oid) as result from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'remix_feed'`,
+    );
+    expect(result).not.toMatch(/user_id|email/);
   });
 });

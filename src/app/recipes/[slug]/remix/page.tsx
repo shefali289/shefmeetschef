@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import RemixForm from "@/components/remix/RemixForm";
 import { getViewer } from "@/lib/auth/session";
+import { getCurrentChallenge } from "@/lib/challenges/challenges";
+import { nzToday } from "@/lib/challenges/dates";
 import { FREE_LIMITS } from "@/lib/limits";
 import { getRecipeBySlug } from "@/lib/recipes";
 import { REMIX_BANNED_TEXT } from "@/lib/remix/post-remix";
@@ -37,7 +39,12 @@ export default async function RemixPage({ params }: Props) {
     body = <p className="font-semibold">{REMIX_BANNED_TEXT}</p>;
   } else {
     // A hint only: the insert itself spends the remix and enforces the limit.
-    const remaining = await usageRemaining(viewer.supabase, "remix", FREE_LIMITS.remix).catch(() => FREE_LIMITS.remix);
+    const [remaining, current] = await Promise.all([
+      usageRemaining(viewer.supabase, "remix", FREE_LIMITS.remix).catch(() => FREE_LIMITS.remix),
+      // The database decides the entry; this only tells the cook. A failed lookup says nothing.
+      getCurrentChallenge(viewer.supabase, nzToday()).catch(() => null),
+    ]);
+    const onBase = current && current.baseRecipeId === recipe.id;
     body = (
       <RemixForm
         slug={recipe.slug}
@@ -45,6 +52,7 @@ export default async function RemixPage({ params }: Props) {
         remaining={remaining}
         limit={FREE_LIMITS.remix}
         action={postRemixAction}
+        challenge={onBase ? { id: current.id, title: current.title } : null}
       />
     );
   }

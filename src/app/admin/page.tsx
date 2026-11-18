@@ -103,6 +103,15 @@ export default async function AdminPage({
         </p>
       )}
 
+      <nav aria-label="Admin sections" className="mt-4 flex flex-wrap gap-3">
+        <Link
+          href="/admin/challenges"
+          className="inline-flex min-h-11 items-center rounded-full border-2 border-copper bg-white px-5 font-semibold text-cocoa hover:bg-blush-light focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-copper"
+        >
+          Weekly challenges
+        </Link>
+      </nav>
+
       <section aria-labelledby="import-heading" className="mt-6">
         <h2 id="import-heading" className="text-xl font-bold">
           Import from Instagram and YouTube

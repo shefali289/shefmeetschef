@@ -3,8 +3,12 @@ import AboutShef from "@/components/brand/AboutShef";
 import FollowAlong from "@/components/brand/FollowAlong";
 import Hero from "@/components/brand/Hero";
 import HerbSprig from "@/components/brand/HerbSprig";
+import ChallengeBanner from "@/components/challenges/ChallengeBanner";
 import RecipeGrid from "@/components/recipe/RecipeGrid";
+import { getCurrentChallenge } from "@/lib/challenges/challenges";
+import { nzToday } from "@/lib/challenges/dates";
 import { listRecipes } from "@/lib/recipes";
+import { createPublicSupabaseClient } from "@/lib/supabase/public";
 
 export const revalidate = 3600;
 
@@ -14,10 +18,20 @@ export default async function Home() {
   const latest = [...(await listRecipes())]
     .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
     .slice(0, LATEST_COUNT);
+  // Public read with the anon client so the page stays static; a failed lookup just hides the banner.
+  // Accepted trade-off: with hourly revalidation the banner and countdown can be up to an hour stale
+  // around NZ midnight (a challenge starting or ending). createChallenge revalidates "/" at once.
+  const today = nzToday();
+  const challenge = await getCurrentChallenge(createPublicSupabaseClient(), today).catch(() => null);
 
   return (
     <main id="main">
       <Hero />
+      {challenge && (
+        <div className="mx-auto max-w-5xl px-4 pb-12">
+          <ChallengeBanner challenge={challenge} today={today} />
+        </div>
+      )}
       <section aria-labelledby="latest-heading" className="mx-auto max-w-5xl px-4 pb-16">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
           <div>
