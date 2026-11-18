@@ -63,3 +63,30 @@ export async function getCurrentUser(): Promise<{ configured: boolean; user: Aut
   } = await supabase.auth.getUser();
   return { configured: true, user: user ? { id: user.id, email: user.email ?? null } : null };
 }
+
+/** For server actions: the signed-in user's own client (RLS applies), or throws NotSignedInError. */
+export async function requireUserClient(): Promise<{ user: AuthUser; supabase: SupabaseClient }> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) throw new NotSignedInError("Sign-in is not set up yet");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new NotSignedInError("Not signed in");
+  return { user: { id: user.id, email: user.email ?? null }, supabase };
+}
+
+export type Viewer = {
+  configured: boolean;
+  user: AuthUser | null;
+  supabase: SupabaseClient | null;
+};
+
+/** Who is viewing this request, read from the session every time (never cached across users). */
+export async function getViewer(): Promise<Viewer> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return { configured: false, user: null, supabase: null };
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return { configured: true, user: user ? { id: user.id, email: user.email ?? null } : null, supabase };
+}

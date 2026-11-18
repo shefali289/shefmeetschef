@@ -19,21 +19,38 @@ export function migrationFiles(): string[] {
 
 /**
  * Fresh in-memory Postgres with the auth/storage stub and every migration applied, in order.
- * `beforeMigrations` runs (as superuser) after the stub and before the first migration, to model
+ * `until` stops before the first migration whose file name sorts at or after it (a full file name
+ * or a timestamp prefix such as "20261118000004"). `beforeMigrations` runs (as superuser) after the stub and before the first migration, to model
  * state that already exists on a real project.
  */
-export async function createDb(opts: { beforeMigrations?: string } = {}): Promise<PGlite> {
+export async function createDb(
+  opts: { beforeMigrations?: string; until?: string } = {},
+): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(readFileSync(STUB, "utf8"));
   if (opts.beforeMigrations) await db.exec(opts.beforeMigrations);
-  for (const file of migrationFiles()) {
+  const until = opts.until;
+  await applyMigrations(db, until ? migrationFiles().filter((f) => f < until) : migrationFiles());
+  return db;
+}
+
+/**
+ * Applies, in order, every migration whose file name sorts at or after `from` (a full file name or
+ * just its timestamp prefix). Pair with `createDb({ until: from })` to seed data that existed
+ * before a migration and then run it.
+ */
+export async function applyMigrationsFrom(db: PGlite, from: string): Promise<void> {
+  await applyMigrations(db, migrationFiles().filter((f) => f >= from));
+}
+
+async function applyMigrations(db: PGlite, files: string[]): Promise<void> {
+  for (const file of files) {
     try {
       await db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
     } catch (e) {
       throw new Error(`migration ${file} failed: ${(e as Error).message}`);
     }
   }
-  return db;
 }
 
 /**
@@ -82,15 +99,26 @@ export type RecipeSeed = {
   source?: "shef" | "outside";
   status?: "draft" | "live";
   owner_id?: string | null;
+  /**
+   * When the row was created (default now()). Superuser-seeded outside rows from this NZ month count
+   * toward the owner's outside_reel allowance (migration 000005), so seed fixtures in an earlier
+   * month when the test later inserts outside recipes as that owner.
+   */
+  created_at?: string;
 };
 
-/** Inserts a recipe as superuser. Returns { id, slug }. */
+/**
+ * Inserts a recipe as superuser (seeding, like the importer or a migration; not limited by the
+ * outside_reel usage check, which applies to API roles). Returns { id, slug }.
+ */
 export async function insertRecipe(db: PGlite, r: RecipeSeed = {}) {
-  const slug = r.slug ?? `recipe-${randomUUID().slice(0, 8)}`;
+  // outside recipe slugs must start with "reel-" and shef slugs must not (migration 000005)
+  const slug = r.slug ?? `${r.source === "outside" ? "reel" : "recipe"}-${randomUUID().slice(0, 8)}`;
   const status = r.status ?? "live";
   const res = await db.query<{ id: string; slug: string }>(
-    `insert into public.recipes (slug, title, source, status, owner_id, published_at)
-     values ($1, $2, $3::recipe_source, $4::recipe_status, $5, $6) returning id, slug`,
+    `insert into public.recipes (slug, title, source, status, owner_id, published_at, created_at)
+     values ($1, $2, $3::recipe_source, $4::recipe_status, $5, $6, coalesce($7::timestamptz, now()))
+     returning id, slug`,
     [
       slug,
       r.title ?? slug,
@@ -98,6 +126,7 @@ export async function insertRecipe(db: PGlite, r: RecipeSeed = {}) {
       status,
       r.owner_id ?? null,
       status === "live" ? new Date().toISOString() : null,
+      r.created_at ?? null,
     ],
   );
   return res.rows[0];
@@ -139,6 +168,22 @@ export async function visibleRows<T>(run: () => Promise<{ rows: T[] }>): Promise
     if (isPgError(e, PERMISSION_DENIED)) return [];
     throw e;
   }
+}
+
+/**
+ * Runs a statement that must fail and returns the Postgres error (code and message), so tests can
+ * check *why* it failed. Fails the test if the statement succeeds or throws a non-Postgres error.
+ */
+export async function pgErrorOf(run: () => Promise<unknown>): Promise<{ code: string; message: string }> {
+  try {
+    await run();
+  } catch (e) {
+    if (typeof e === "object" && e !== null && typeof (e as { code?: unknown }).code === "string") {
+      return { code: (e as { code: string }).code, message: (e as Error).message };
+    }
+    throw e;
+  }
+  throw new Error("expected the statement to fail, but it succeeded");
 }
 
 export { randomUUID as uuid };

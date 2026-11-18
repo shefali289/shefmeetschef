@@ -16,9 +16,16 @@ export function slugify(title: string): string {
   return slug || "recipe";
 }
 
-/** slugify(title), with -2, -3, ... appended until it is not in `existing`. */
+/** "reel-" slugs are reserved for outside recipes (a database check), so Shef's get "shef-" in front. */
+function shefSlug(title: string): string {
+  const slug = slugify(title);
+  if (!slug.startsWith("reel-")) return slug;
+  return `shef-${slug}`.slice(0, MAX_LENGTH).replace(/-+$/g, "");
+}
+
+/** slugify(title) (never starting "reel-"), with -2, -3, ... appended until it is not in `existing`. */
 export function uniqueSlug(title: string, existing: Set<string>): string {
-  const base = slugify(title);
+  const base = shefSlug(title);
   if (!existing.has(base)) return base;
   for (let n = 2; ; n++) {
     const suffix = `-${n}`;

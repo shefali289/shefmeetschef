@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { instagramEmbedUrl, youtubeEmbedId } from "./embed";
+import { instagramCanonicalUrl, instagramEmbedUrl, youtubeEmbedId } from "./embed";
 
 describe("instagramEmbedUrl", () => {
   it("builds Instagram embed URL from reel permalink", () => {
@@ -58,5 +58,45 @@ describe("host allow-list", () => {
       "",
     ];
     for (const url of badYouTube) expect(youtubeEmbedId(url), url).toBeNull();
+  });
+});
+
+describe("Instagram links with a handle", () => {
+  it("accepts instagram.com/<handle>/reel/<id> links", () => {
+    expect(instagramEmbedUrl("https://www.instagram.com/some.cook_1/reel/ABC123/")).toBe(
+      "https://www.instagram.com/reel/ABC123/embed",
+    );
+    expect(instagramEmbedUrl("https://instagram.com/some.cook_1/reel/ABC123?igsh=xyz")).toBe(
+      "https://www.instagram.com/reel/ABC123/embed",
+    );
+    expect(instagramEmbedUrl("https://www.instagram.com/SomeCook/p/XYZ789/")).toBe(
+      "https://www.instagram.com/p/XYZ789/embed",
+    );
+    // the canonical link keeps the handle (so the card can say whose reel it is) but drops the query
+    expect(instagramCanonicalUrl("https://www.instagram.com/some.cook_1/reel/ABC123/?igsh=xyz&utm=1")).toBe(
+      "https://www.instagram.com/some.cook_1/reel/ABC123/",
+    );
+    // links without a handle are unchanged
+    expect(instagramCanonicalUrl("https://instagram.com/reel/ABC123?igsh=x")).toBe(
+      "https://www.instagram.com/reel/ABC123/",
+    );
+  });
+
+  it("rejects handles with invalid characters", () => {
+    const bad = [
+      "https://www.instagram.com/bad-handle/reel/ABC123/",
+      "https://www.instagram.com/bad!handle/reel/ABC123/",
+      "https://www.instagram.com/a%3Cscript%3E/reel/ABC123/",
+      "https://www.instagram.com/a%2Fb/reel/ABC123/",
+      `https://www.instagram.com/${"a".repeat(31)}/reel/ABC123/`,
+      "https://www.instagram.com/one/two/reel/ABC123/",
+      "https://www.instagram.com/some.cook/reel/ABC123/extra/",
+      "https://www.instagram.com/some.cook/stories/ABC123/",
+      "https://evil.io/some.cook/reel/ABC123/",
+    ];
+    for (const url of bad) {
+      expect(instagramEmbedUrl(url), url).toBeNull();
+      expect(instagramCanonicalUrl(url), url).toBeNull();
+    }
   });
 });

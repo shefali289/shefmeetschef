@@ -35,3 +35,20 @@ describe("uniqueSlug", () => {
     expect(uniqueSlug("Masala Chai", new Set(["masala-chai-2"]))).toBe("masala-chai");
   });
 });
+
+describe("uniqueSlug and the reel- namespace", () => {
+  // reel- slugs belong to outside recipes only (check constraint in the database)
+  it("never returns a slug starting with reel-", () => {
+    expect(uniqueSlug("Reel Pasta", new Set())).toBe("shef-reel-pasta");
+    expect(uniqueSlug("Reel Pasta", new Set(["shef-reel-pasta"]))).toBe("shef-reel-pasta-2");
+    expect(uniqueSlug("REEL - quick dal", new Set())).not.toMatch(/^reel-/);
+    expect(uniqueSlug("Reel " + "chai ".repeat(40), new Set())).not.toMatch(/^reel-/);
+    expect(uniqueSlug("Reel " + "chai ".repeat(40), new Set()).length).toBeLessThanOrEqual(80);
+    for (const t of ["Reel Pasta", "reel-pasta", "Reel"]) {
+      expect(uniqueSlug(t, new Set())).toMatch(SLUG_RE);
+    }
+    // words that merely contain reel are left alone
+    expect(uniqueSlug("Reel", new Set())).toBe("reel");
+    expect(uniqueSlug("Reelish Curry", new Set())).toBe("reelish-curry");
+  });
+});
